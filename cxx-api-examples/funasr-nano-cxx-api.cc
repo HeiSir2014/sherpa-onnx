@@ -126,7 +126,9 @@ int32_t main(int32_t argc, char *argv[]) {
                                 bool is_final) -> bool {
     std::cout << text << std::flush;
     streaming_text += text;
-    ++token_count;
+    if (token_id >= 0) {
+      ++token_count;
+    }
     if (is_final) {
       std::cout << std::endl;
     }
@@ -143,6 +145,7 @@ int32_t main(int32_t argc, char *argv[]) {
       1000.0f;
 
   auto result2 = stream2->GetResult();
+  std::cout << "Result: " << result2.text << "\n";
   std::cout << "Tokens: " << token_count << "\n";
   std::cout << "Time:   " << std::fixed << std::setprecision(3) << elapsed2
             << "s\n";
@@ -191,7 +194,16 @@ int32_t main(int32_t argc, char *argv[]) {
     std::cout << "  Test 3: " << result3.text << "\n";
   }
 
+  bool match_1_2 = (result1.text == result2.text);
+  std::cout << "Test 1 vs Test 2 (streaming == non-streaming): "
+            << (match_1_2 ? "PASS" : "FAIL") << "\n";
+
+  if (!match_1_2) {
+    std::cout << "  Test 1: " << result1.text << "\n";
+    std::cout << "  Test 2: " << result2.text << "\n";
+  }
+
   std::cout << std::string(60, '=') << "\n";
 
-  return match_1_3 ? 0 : 1;
+  return (match_1_3 && match_1_2) ? 0 : 1;
 }

@@ -95,16 +95,12 @@ class OfflineRecognizerFunASRNanoImpl : public OfflineRecognizerImpl {
       int64_t token_id, int32_t ngram_size,
       const std::vector<int64_t> &generated_ids) const;
 
-  OfflineRecognitionResult GenerateText(Ort::Value encoder_out,
-                                       const std::string &system_prompt,
-                                       const std::string &user_prompt) const;
-
-  // Generate text with streaming callback support
-  // Calls the callback for each token as it's generated
-  OfflineRecognitionResult GenerateTextWithCallback(
+  // If `callback` is set, it is invoked with the decoded text of each
+  // generated token, then once more with is_final=true when generation ends.
+  OfflineRecognitionResult GenerateText(
       Ort::Value encoder_out, const std::string &system_prompt,
       const std::string &user_prompt,
-      const FunASRNanoStreamingCallback &callback) const;
+      const FunASRNanoStreamingCallback &callback = nullptr) const;
 
   OfflineRecognizerConfig config_;
   std::unique_ptr<OfflineFunASRNanoModel> model_;

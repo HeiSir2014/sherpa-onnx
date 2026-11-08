@@ -662,7 +662,11 @@ int64_t OfflineRecognizerFunASRNanoImpl::SampleTokenWithPenalty(
   // top_p >= 1: sample from full distribution
   if (top_p >= 1.0f) {
     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-    float sample = dist(rng_);
+    float sample = 0.0f;
+    {
+      std::scoped_lock lock(rng_mutex_);
+      sample = dist(rng_);
+    }
     float cumsum = 0.0f;
     for (int32_t i = 0; i < vocab_size; ++i) {
       cumsum += probs[i];
@@ -705,7 +709,11 @@ int64_t OfflineRecognizerFunASRNanoImpl::SampleTokenWithPenalty(
   if (renorm_sum <= 0.0f) return 0;
 
   std::uniform_real_distribution<float> dist(0.0f, renorm_sum);
-  float sample = dist(rng_);
+  float sample = 0.0f;
+  {
+    std::scoped_lock lock(rng_mutex_);
+    sample = dist(rng_);
+  }
   float cumsum_sample = 0.0f;
   for (int32_t i = 0; i < cutoff; ++i) {
     cumsum_sample += probs[idx[i]];
@@ -716,7 +724,8 @@ int64_t OfflineRecognizerFunASRNanoImpl::SampleTokenWithPenalty(
 
 OfflineRecognitionResult OfflineRecognizerFunASRNanoImpl::GenerateText(
     Ort::Value encoder_out, const std::string &system_prompt,
-    const std::string &user_prompt) const {
+    const std::string &user_prompt,
+    const FunASRNanoStreamingCallback &callback) const {
   OfflineRecognitionResult result;
   auto memory_info =
       Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault);
@@ -914,6 +923,9 @@ OfflineRecognitionResult OfflineRecognizerFunASRNanoImpl::GenerateText(
 
   bool is_first_step = true;
 
+  // Incremental UTF-8 decoding state, used only when streaming via callback.
+  StreamingDecodeState streaming_state;
+
   for (int32_t step = 0; step < max_new_tokens; ++step) {
     // valid_len represents the mask_len for the next decode step (= past +
     // current).
@@ -1076,10 +1088,23 @@ OfflineRecognitionResult OfflineRecognizerFunASRNanoImpl::GenerateText(
 
     generated_ids.push_back(next_id);
 
+    if (callback) {
+      std::string chunk =
+          tokenizer_->DecodeTokenStreaming(next_id, &streaming_state);
+      if (!chunk.empty() && !callback(chunk, next_id, false)) {
+        break;  // Early stop requested by the caller.
+      }
+    }
+
     if (is_first_step) is_first_step = false;
 
     // valid_len represents the kv_seq_len for the next decode step.
     valid_len += 1;
+  }
+
+  if (callback) {
+    // Always signal completion; flush any incomplete UTF-8 bytes first.
+    callback(streaming_state.FlushPendingBytes(), -1, true);
   }
 
   result.text = tokenizer_->Decode(generated_ids);
@@ -1161,6 +1186,13 @@ OfflineRecognitionResult OfflineRecognizerFunASRNanoImpl::GenerateText(
 // Applies LFR processing, runs encoder, and generates text for each stream.
 void OfflineRecognizerFunASRNanoImpl::DecodeStreams(OfflineStream **ss,
                                                     int32_t n) const {
+  DecodeStreamsWithCallback(ss, n, nullptr);
+}
+
+// Decode streams, optionally reporting generated text through `callback`.
+void OfflineRecognizerFunASRNanoImpl::DecodeStreamsWithCallback(
+    OfflineStream **ss, int32_t n,
+    const FunASRNanoStreamingCallback &callback) const {
   auto memory_info =
       Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault);
   const auto &funasr_config = config_.model_config.funasr_nano;
@@ -1202,344 +1234,12 @@ void OfflineRecognizerFunASRNanoImpl::DecodeStreams(OfflineStream **ss,
                        user_prompt_dyn.c_str());
     }
 
-    OfflineRecognitionResult r = GenerateText(
-        std::move(encoder_out), funasr_config.system_prompt, user_prompt_dyn);
+    OfflineRecognitionResult r =
+        GenerateText(std::move(encoder_out), funasr_config.system_prompt,
+                     user_prompt_dyn, callback);
 
     ss[i]->SetResult(r);
   }
-}
-
-// Generate text with streaming callback support
-OfflineRecognitionResult
-OfflineRecognizerFunASRNanoImpl::GenerateTextWithCallback(
-    Ort::Value encoder_out, const std::string &system_prompt,
-    const std::string &user_prompt,
-    const FunASRNanoStreamingCallback &callback) const {
-  OfflineRecognitionResult result;
-  auto memory_info =
-      Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault);
-  const auto &funasr_config = config_.model_config.funasr_nano;
-  auto enc_shape = encoder_out.GetTensorTypeAndShapeInfo().GetShape();
-  int32_t audio_token_len = static_cast<int32_t>(enc_shape[1]);
-  int32_t hidden_size = static_cast<int32_t>(enc_shape[2]);
-  int32_t fbank_beg_idx = 0;
-  int32_t fake_token_len = 0;
-  std::vector<int64_t> source_ids =
-      BuildSourceIds(system_prompt, user_prompt, audio_token_len, fbank_beg_idx,
-                     fake_token_len);
-  int32_t context_len = static_cast<int32_t>(source_ids.size());
-
-  std::vector<std::pair<Ort::Value, Ort::Value>> cache_kv =
-      model_->CreateEmptyKVCache(1);
-  int32_t max_seq_len = model_->GetMaxTotalLen();
-  if (max_seq_len <= 0) {
-    SHERPA_ONNX_LOGE("Invalid max_seq_len=%d", max_seq_len);
-    result.text = "";
-    return result;
-  }
-
-  // Truncation logic (same as GenerateText)
-  if (context_len > max_seq_len) {
-    int32_t before_len = fbank_beg_idx;
-    int32_t after_len = context_len - before_len - fake_token_len;
-    if (after_len < 0) after_len = 0;
-    int32_t keep_audio = max_seq_len - before_len - after_len;
-    if (keep_audio < 0) {
-      source_ids.erase(source_ids.begin(), source_ids.end() - max_seq_len);
-      fbank_beg_idx = -1;
-      fake_token_len = 0;
-      context_len = static_cast<int32_t>(source_ids.size());
-    } else {
-      if (keep_audio > audio_token_len) keep_audio = audio_token_len;
-      std::vector<int64_t> ids_before(source_ids.begin(),
-                                      source_ids.begin() + before_len);
-      std::vector<int64_t> ids_after(source_ids.end() - after_len,
-                                     source_ids.end());
-      int64_t pad_id = tokenizer_->GetPadTokenId();
-      if (pad_id < 0) pad_id = tokenizer_->GetEosTokenId();
-      source_ids.clear();
-      source_ids.reserve(before_len + keep_audio + after_len);
-      source_ids.insert(source_ids.end(), ids_before.begin(), ids_before.end());
-      source_ids.insert(source_ids.end(), keep_audio, pad_id);
-      source_ids.insert(source_ids.end(), ids_after.begin(), ids_after.end());
-      fake_token_len = keep_audio;
-      fbank_beg_idx = before_len;
-      context_len = static_cast<int32_t>(source_ids.size());
-    }
-  }
-
-  // Get text embeddings
-  std::vector<int64_t> input_ids = source_ids;
-  std::array<int64_t, 2> ids_shape{1, context_len};
-  Ort::Value input_ids_tensor =
-      Ort::Value::CreateTensor(memory_info, input_ids.data(), input_ids.size(),
-                               ids_shape.data(), ids_shape.size());
-  Ort::Value text_embeds =
-      model_->ForwardEmbedding(std::move(input_ids_tensor));
-  auto te_info = text_embeds.GetTensorTypeAndShapeInfo();
-  const auto te_type = te_info.GetElementType();
-  const bool te_fp16 = (te_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16);
-
-  std::vector<float> inputs_embeds_fp32(
-      static_cast<size_t>(context_len) * hidden_size, 0.0f);
-
-  if (te_fp16) {
-    const uint16_t *p = text_embeds.GetTensorData<uint16_t>();
-    const size_t total = static_cast<size_t>(context_len) * hidden_size;
-    for (size_t i = 0; i < total; ++i) {
-      inputs_embeds_fp32[i] = HalfBitsToFloat(p[i]);
-    }
-  } else {
-    const float *p = text_embeds.GetTensorData<float>();
-    const size_t total = static_cast<size_t>(context_len) * hidden_size;
-    std::memcpy(inputs_embeds_fp32.data(), p, total * sizeof(float));
-  }
-
-  // Inject audio embeddings
-  auto enc_info2 = encoder_out.GetTensorTypeAndShapeInfo();
-  auto enc_et =
-      static_cast<ONNXTensorElementDataType>(enc_info2.GetElementType());
-  int32_t copy_len = std::min(fake_token_len, audio_token_len);
-
-  if (copy_len > 0 && fbank_beg_idx >= 0) {
-    if (enc_et == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16) {
-      const uint16_t *enc = encoder_out.GetTensorData<uint16_t>();
-      const size_t hidden_size_u = static_cast<size_t>(hidden_size);
-      for (int32_t t = 0; t < copy_len; ++t) {
-        const uint16_t *src = enc + static_cast<size_t>(t) * hidden_size_u;
-        float *dst = inputs_embeds_fp32.data() +
-                     static_cast<size_t>(fbank_beg_idx + t) * hidden_size_u;
-        for (size_t d = 0; d < hidden_size_u; ++d) {
-          dst[d] = HalfBitsToFloat(src[d]);
-        }
-      }
-    } else if (enc_et == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
-      const float *enc = encoder_out.GetTensorData<float>();
-      const size_t hidden_size_u = static_cast<size_t>(hidden_size);
-      for (int32_t t = 0; t < copy_len; ++t) {
-        const float *src = enc + static_cast<size_t>(t) * hidden_size_u;
-        float *dst = inputs_embeds_fp32.data() +
-                     static_cast<size_t>(fbank_beg_idx + t) * hidden_size_u;
-        std::memcpy(dst, src, hidden_size_u * sizeof(float));
-      }
-    }
-  }
-
-  std::vector<int64_t> attention_mask(static_cast<size_t>(max_seq_len), 1);
-  std::vector<float> next_embed_fp32(static_cast<size_t>(hidden_size));
-  int32_t valid_len = context_len;
-
-  std::vector<int64_t> generated_ids;
-  generated_ids.reserve(funasr_config.max_new_tokens);
-
-  const int64_t eos_id = tokenizer_->GetEosTokenId();
-  const int64_t im_end_id = tokenizer_->GetImEndTokenId();
-  const int32_t max_new_tokens = funasr_config.max_new_tokens;
-
-  bool is_first_step = true;
-  bool should_stop = false;
-
-  // Streaming state for incremental decode
-  StreamingDecodeState streaming_state;
-  std::string accumulated_text;
-  accumulated_text.reserve(max_new_tokens * 4);
-
-  for (int32_t step = 0; step < max_new_tokens && !should_stop; ++step) {
-    if (valid_len >= max_seq_len) break;
-
-    Ort::Value logits{nullptr};
-
-    if (is_first_step) {
-      // Prefill
-      std::array<int64_t, 3> embeds_shape{1, context_len, hidden_size};
-      Ort::Value inputs_embeds_tensor = Ort::Value::CreateTensor<float>(
-          memory_info, inputs_embeds_fp32.data(),
-          static_cast<size_t>(context_len) * hidden_size, embeds_shape.data(),
-          embeds_shape.size());
-
-      std::array<int64_t, 2> mask_shape{1, context_len};
-      Ort::Value attention_mask_tensor = Ort::Value::CreateTensor<int64_t>(
-          memory_info, attention_mask.data(), static_cast<size_t>(context_len),
-          mask_shape.data(), mask_shape.size());
-
-      Ort::Value cache_position = BuildCachePositionFromMask(
-          attention_mask_tensor, context_len, model_->Allocator());
-
-      auto tmp = model_->ForwardLLM(std::move(inputs_embeds_tensor),
-                                    std::move(attention_mask_tensor),
-                                    cache_position, cache_kv);
-      logits = std::move(tmp.first);
-      auto kv_outputs = std::move(tmp.second);
-      model_->ApplyKvDeltaInplace(&cache_kv, kv_outputs, cache_position);
-
-    } else {
-      // Decode
-      int64_t last_token_id = generated_ids.back();
-      std::vector<int64_t> one_id{last_token_id};
-      std::array<int64_t, 2> one_shape{1, 1};
-      Ort::Value one_tensor =
-          Ort::Value::CreateTensor(memory_info, one_id.data(), one_id.size(),
-                                   one_shape.data(), one_shape.size());
-
-      Ort::Value next_embed = model_->ForwardEmbedding(std::move(one_tensor));
-      auto ne_info = next_embed.GetTensorTypeAndShapeInfo();
-      bool ne_fp16 =
-          (ne_info.GetElementType() == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16);
-
-      if (ne_fp16) {
-        const uint16_t *src = next_embed.GetTensorData<uint16_t>();
-        for (size_t d = 0; d < static_cast<size_t>(hidden_size); ++d) {
-          next_embed_fp32[d] = HalfBitsToFloat(src[d]);
-        }
-      } else {
-        const float *src = next_embed.GetTensorData<float>();
-        std::memcpy(next_embed_fp32.data(), src,
-                    static_cast<size_t>(hidden_size) * sizeof(float));
-      }
-
-      std::array<int64_t, 3> embeds_shape{1, 1, hidden_size};
-      Ort::Value inputs_embeds_tensor = Ort::Value::CreateTensor<float>(
-          memory_info, next_embed_fp32.data(), static_cast<size_t>(hidden_size),
-          embeds_shape.data(), embeds_shape.size());
-
-      std::array<int64_t, 2> mask_shape{1, valid_len};
-      Ort::Value attention_mask_tensor = Ort::Value::CreateTensor<int64_t>(
-          memory_info, attention_mask.data(), static_cast<size_t>(valid_len),
-          mask_shape.data(), mask_shape.size());
-
-      Ort::Value cache_position = BuildCachePositionFromMask(
-          attention_mask_tensor, 1, model_->Allocator());
-
-      auto tmp = model_->ForwardLLM(std::move(inputs_embeds_tensor),
-                                    std::move(attention_mask_tensor),
-                                    cache_position, cache_kv);
-      logits = std::move(tmp.first);
-      auto kv_outputs = std::move(tmp.second);
-      model_->ApplyKvDeltaInplace(&cache_kv, kv_outputs, cache_position);
-    }
-
-    auto log_info = logits.GetTensorTypeAndShapeInfo();
-    auto log_shape = log_info.GetShape();
-
-    if (log_shape.size() < 3) {
-      result.text = "";
-      return result;
-    }
-
-    int32_t time_dim = static_cast<int32_t>(log_shape[1]);
-    int32_t vocab_size = static_cast<int32_t>(log_shape[2]);
-    if (time_dim <= 0 || vocab_size <= 0) {
-      result.text = "";
-      return result;
-    }
-
-    const bool log_fp16 =
-        (log_info.GetElementType() == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT16);
-    int32_t last_idx = time_dim - 1;
-
-    const void *base = nullptr;
-    if (log_fp16)
-      base = logits.GetTensorData<uint16_t>();
-    else
-      base = logits.GetTensorData<float>();
-
-    const size_t offset = static_cast<size_t>(last_idx) * vocab_size;
-    const void *last_logits =
-        log_fp16 ? static_cast<const void *>(
-                       reinterpret_cast<const uint16_t *>(base) + offset)
-                 : static_cast<const void *>(
-                       reinterpret_cast<const float *>(base) + offset);
-
-    int64_t next_id = SampleTokenWithPenalty(
-        last_logits, log_fp16, vocab_size, funasr_config.temperature,
-        funasr_config.top_p, funasr_config.repetition_penalty,
-        funasr_config.no_repeat_ngram_size, generated_ids);
-
-    if (next_id == eos_id || next_id == im_end_id) break;
-
-    generated_ids.push_back(next_id);
-
-    // Streaming decode and callback
-    if (callback) {
-      std::string text_chunk =
-          tokenizer_->DecodeTokenStreaming(next_id, &streaming_state);
-      if (!text_chunk.empty()) {
-        accumulated_text.append(text_chunk);
-        bool is_final = (step == max_new_tokens - 1);
-        bool should_continue = callback(text_chunk, next_id, is_final);
-        if (!should_continue) {
-          should_stop = true;
-        }
-      }
-    }
-
-    if (is_first_step) is_first_step = false;
-    valid_len += 1;
-  }
-
-  // Flush remaining bytes
-  if (callback && streaming_state.HasPendingBytes()) {
-    std::string remaining = streaming_state.FlushPendingBytes();
-    if (!remaining.empty()) {
-      accumulated_text.append(remaining);
-      callback(remaining, -1, true);
-    }
-  }
-
-  // Build final result
-  if (callback) {
-    result.text = accumulated_text;
-  } else {
-    result.text = tokenizer_->Decode(generated_ids);
-  }
-  result.text = ApplyInverseTextNormalization(std::move(result.text));
-  result.text = ApplyHomophoneReplacer(std::move(result.text));
-
-  // Build tokens and timestamps
-  if (!generated_ids.empty()) {
-    result.tokens.reserve(generated_ids.size());
-    std::string pending_bytes;
-    for (int64_t token_id : generated_ids) {
-      std::string s =
-          tokenizer_->GetTokenStringStreaming(token_id, &pending_bytes);
-      result.tokens.push_back(std::move(s));
-    }
-    if (!pending_bytes.empty() && !result.tokens.empty()) {
-      std::string replacement_chars;
-      replacement_chars.reserve(pending_bytes.size() * 3);
-      for (size_t i = 0; i < pending_bytes.size(); ++i) {
-        replacement_chars.append("\xEF\xBF\xBD");
-      }
-      result.tokens.back().append(replacement_chars);
-    }
-
-    auto enc_shape2 = encoder_out.GetTensorTypeAndShapeInfo().GetShape();
-    int32_t audio_token_len2 = static_cast<int32_t>(enc_shape2[1]);
-    int32_t lfr_window_size = model_->LfrWindowSize();
-    int32_t lfr_window_shift = model_->LfrWindowShift();
-    int32_t original_feature_frames =
-        (audio_token_len2 > 0)
-            ? ((audio_token_len2 - 1) * lfr_window_shift + lfr_window_size)
-            : 0;
-    float frame_shift_ms = config_.feat_config.frame_shift_ms;
-    float audio_duration = (original_feature_frames > 0 && frame_shift_ms > 0)
-                               ? static_cast<float>(original_feature_frames) *
-                                     frame_shift_ms / 1000.0f
-                               : 0.0f;
-
-    result.timestamps.reserve(generated_ids.size());
-    if (generated_ids.size() > 1 && audio_duration > 0) {
-      float time_per_token =
-          audio_duration / static_cast<float>(generated_ids.size());
-      for (size_t i = 0; i < generated_ids.size(); ++i) {
-        result.timestamps.push_back(static_cast<float>(i) * time_per_token);
-      }
-    } else if (generated_ids.size() == 1 && audio_duration > 0) {
-      result.timestamps.push_back(audio_duration / 2.0f);
-    }
-  }
-
-  return result;
 }
 
 // Decode a single stream with streaming callback
@@ -1548,43 +1248,6 @@ void OfflineRecognizerFunASRNanoImpl::DecodeStreamWithCallback(
   if (!s) return;
   OfflineStream *streams[] = {s};
   DecodeStreamsWithCallback(streams, 1, callback);
-}
-
-// Decode streams with streaming callback
-void OfflineRecognizerFunASRNanoImpl::DecodeStreamsWithCallback(
-    OfflineStream **ss, int32_t n,
-    const FunASRNanoStreamingCallback &callback) const {
-  auto memory_info =
-      Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault);
-  const auto &funasr_config = config_.model_config.funasr_nano;
-
-  for (int32_t i = 0; i != n; ++i) {
-    std::vector<float> f = ss[i]->GetFrames();
-    f = ApplyLFR(f);
-    int32_t num_frames = static_cast<int32_t>(
-        f.size() / (config_.feat_config.feature_dim * model_->LfrWindowSize()));
-    if (num_frames <= 0) {
-      OfflineRecognitionResult r;
-      r.text = "";
-      ss[i]->SetResult(r);
-      continue;
-    }
-
-    std::array<int64_t, 3> shape{1, num_frames,
-                                 static_cast<int64_t>(f.size() / num_frames)};
-
-    Ort::Value features = Ort::Value::CreateTensor<float>(
-        memory_info, const_cast<float *>(f.data()), f.size(), shape.data(),
-        shape.size());
-
-    Ort::Value encoder_out = model_->ForwardEncoderAdaptor(std::move(features));
-
-    OfflineRecognitionResult r = GenerateTextWithCallback(
-        std::move(encoder_out), funasr_config.system_prompt,
-        funasr_config.user_prompt, callback);
-
-    ss[i]->SetResult(r);
-  }
 }
 
 #if __ANDROID_API__ >= 9

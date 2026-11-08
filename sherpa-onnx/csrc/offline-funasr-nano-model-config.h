@@ -15,8 +15,9 @@ namespace sherpa_onnx {
 // Callback for streaming token generation
 // Parameters:
 //   - text: Decoded text chunk from this token
-//   - token_id: The token ID that was generated
-//   - is_final: True if this is the last token
+//   - token_id: The token ID that was generated, or -1 for the final call
+//   - is_final: True exactly once, after generation ends. `text` then holds
+//     any remaining incomplete UTF-8 bytes and is usually empty.
 // Returns: true to continue generation, false to stop early
 using FunASRNanoStreamingCallback = std::function<bool(
     const std::string &text, int64_t token_id, bool is_final)>;

@@ -136,15 +136,29 @@ class OfflineStream::Impl {
   }
 
   void AcceptWaveform(int32_t sampling_rate, const float *waveform, int32_t n) {
-    // Fix for deterministic dither in kaldi-native-fbank.
-    // The Dither() function creates a RandomState that seeds from global
-    // rand(). We reset rand() state to ensure reproducible features across
-    // calls. Mutex ensures thread-safety when multiple streams process
-    // concurrently.
+    if (!UsesDither()) {
+      AcceptWaveformNormalized(sampling_rate, waveform, n);
+      return;
+    }
+
+    // kaldi-native-fbank's Dither() draws from the global rand(). Reseed it
+    // so the same audio always yields the same features, and serialize the
+    // reseed + extraction so concurrent streams cannot interleave draws.
     static std::mutex dither_mutex;
     std::lock_guard<std::mutex> lock(dither_mutex);
     std::srand(0);
+    AcceptWaveformNormalized(sampling_rate, waveform, n);
+  }
 
+  // True if feature extraction draws random numbers for dithering.
+  bool UsesDither() const {
+    if (mfcc_) return mfcc_opts_.frame_opts.dither != 0;
+    if (fbank_ || whisper_fbank_) return opts_.frame_opts.dither != 0;
+    return false;  // Moonshine / Omnilingual ASR: no knf extractor
+  }
+
+  void AcceptWaveformNormalized(int32_t sampling_rate, const float *waveform,
+                                int32_t n) {
     if (config_.normalize_samples) {
       AcceptWaveformImpl(sampling_rate, waveform, n);
     } else {

@@ -847,6 +847,7 @@ if(SHERPA_ONNX_ENABLE_TESTS)
     offline-recognizer-shared-rng-test.cc
     offline-recognizer-transducer-impl-test.cc
     offline-whisper-language-candidates-test.cc
+    offline-stream-test.cc
     offline-whisper-timestamp-rules-test.cc
     packed-sequence-test.cc
     pad-sequence-test.cc

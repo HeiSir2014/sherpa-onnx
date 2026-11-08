@@ -36,6 +36,21 @@
 #
 # In sherpa-onnx, set cfg.extra["chunk_frames"] = "25" to use streaming mode
 # with this model.
+#
+# KNOWN ISSUE: output not yet compatible with the C++ runtime
+# -----------------------------------------------------------
+# The models the runtime is tested with (qwen3-tts-0.6b-int8, files with the
+# "_q"/".int8" suffixes) were NOT produced by this script, and their exporter
+# is not in this repository. This script's code_predictor.onnx differs from
+# what offline-tts-qwen3-model.cc expects:
+#   - the runtime always feeds two inputs (embeddings, generation step) by
+#     position, with the step as shape [1]; here gen_step is a scalar;
+#   - gen_step is unused in forward(), so torch.onnx.export drops it and the
+#     residual-codebook head is not selected per step.
+# config.json is written flat (top-level keys); the runtime reads both this
+# and the Hugging Face nested "talker_config" layout.
+# Verify any model exported with this script against the C++ runtime before
+# use.
 
 import argparse
 import json
@@ -798,7 +813,11 @@ def main():
             f'    cfg.extra["chunk_frames"] = "{args.streaming_chunk_frames}"'
         )
         print(
-            '    cfg.model.qwen3.tokenizer12hz_decode = ".../tokenizer12hz_decode_stream.onnx"'
+            "    config.model.qwen3.tokenizer12hz_decode_stream = "
+            '".../tokenizer12hz_decode_stream.onnx"'
+        )
+        print(
+            "  (keep tokenizer12hz_decode pointing at the batch decoder)"
         )
     print("=" * 60)
 

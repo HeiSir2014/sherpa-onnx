@@ -3,6 +3,7 @@ import pytest
 
 from metrics import (
     Cue,
+    error_breakdown,
     hallucination_chars_per_min,
     median_start_offset,
     normalize,
@@ -46,6 +47,27 @@ def test_token_error_rate_counts_substitution_deletion_insertion():
     # ref: 今天天气很好 (6), hyp: 今天天汽好呀 -> sub 气->汽, del 很, ins 呀
     errors, n = token_error_rate("今天天气很好", "今天天汽好呀")
     assert (errors, n) == (3, 6)
+
+
+def test_error_breakdown_counts_substitution():
+    assert error_breakdown("今天天气很好", "今天天汽很好") == {
+        "sub": 1, "del": 0, "ins": 0, "ref_tokens": 6}
+
+
+def test_error_breakdown_counts_deletion():
+    assert error_breakdown("今天天气很好", "今天天气好") == {
+        "sub": 0, "del": 1, "ins": 0, "ref_tokens": 6}
+
+
+def test_error_breakdown_counts_insertion():
+    assert error_breakdown("今天天气很好", "今天天气很好呀") == {
+        "sub": 0, "del": 0, "ins": 1, "ref_tokens": 6}
+
+
+def test_error_breakdown_total_matches_token_error_rate():
+    ref, hyp = "我们今天开会讨论预算", "我们明天开会预算吧"
+    b = error_breakdown(ref, hyp)
+    assert b["sub"] + b["del"] + b["ins"] == token_error_rate(ref, hyp)[0]
 
 
 def test_token_error_rate_ignores_punctuation_and_script():

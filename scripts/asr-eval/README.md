@@ -33,7 +33,13 @@ work/.venv/Scripts/python fetch_material.py     # download clips + refs
 work/.venv/Scripts/python fetch_material.py --verify
 work/.venv/Scripts/python eval_asr.py           # all models x all clips
 work/.venv/Scripts/python eval_asr.py --report  # tables only
+work/.venv/Scripts/python make_report.py        # regenerate REPORT.md
 ```
+
+`REPORT.md` is generated: parameter counts, precision mix and sizes are
+read from the ONNX files, and metrics (including the
+substitution/deletion/insertion breakdown) from `work/results`. It needs the
+`onnx` package (`uv pip install onnx`).
 
 Outputs: `work/results/<model>/<clip>.srt` (hypothesis subtitles) and
 `<clip>.json` (metrics).

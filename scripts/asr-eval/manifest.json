@@ -6,7 +6,7 @@
     "start": 600,
     "duration": 480,
     "sub_lang": "zh-CN",
-    "note": "圆桌派 S8E01: 4-speaker round-table, Youku official channel"
+    "note": "《圆桌派》第八季 EP01：4 人圆桌讨论（优酷官方频道）"
   },
   {
     "name": "meeting-roundtable-xunjie",
@@ -15,7 +15,7 @@
     "start": 900,
     "duration": 480,
     "sub_lang": "zh-CN",
-    "note": "圆桌派 S7E9: 李玫瑾/周轶君/马未都, female voices and Beijing accent"
+    "note": "《圆桌派》第七季 EP9：李玫瑾/周轶君/马未都，含女声与京腔"
   },
   {
     "name": "meeting-podcast-caikangyong",
@@ -24,7 +24,7 @@
     "start": 900,
     "duration": 480,
     "sub_lang": "zh-TW",
-    "note": "Drinking Library EP103 with 蔡康永: multi-speaker, Taiwanese accent"
+    "note": "Drinking Library 播客 EP103（蔡康永）：多人对话，台湾口音"
   },
   {
     "name": "meeting-interview-rising",
@@ -33,7 +33,7 @@
     "start": 900,
     "duration": 480,
     "sub_lang": "zh-Hans",
-    "note": "Rising Podcast: two-person interview"
+    "note": "Rising Podcast：双人访谈，中英夹杂"
   },
   {
     "name": "meeting-talk-yike",
@@ -42,7 +42,7 @@
     "start": 120,
     "duration": 480,
     "sub_lang": "zh-Hant",
-    "note": "一刻talks 蔡康永: presentation-style talk with audience"
+    "note": "一刻talks（蔡康永）：演讲式，有现场观众"
   },
   {
     "name": "film-drama-cuihuoniandai",
@@ -51,7 +51,7 @@
     "start": 300,
     "duration": 480,
     "sub_lang": "zh-Hans",
-    "note": "淬火年代 EP01: TV drama with score/effects, 正午阳光 official channel"
+    "note": "《淬火年代》EP01：现代剧，有配乐和音效（正午阳光官方频道）"
   },
   {
     "name": "film-costume-zhuyu",
@@ -60,7 +60,7 @@
     "start": 600,
     "duration": 480,
     "sub_lang": "zh-CN",
-    "note": "逐玉 EP01: costume drama, semi-classical dialogue, iQIYI official"
+    "note": "《逐玉》EP01：古装剧，半文言台词（爱奇艺官方）"
   },
   {
     "name": "film-scifi-santi",
@@ -69,7 +69,7 @@
     "start": 600,
     "duration": 480,
     "sub_lang": "zh",
-    "note": "三体 EP01: sci-fi drama, heavy effects, Tencent Video official"
+    "note": "《三体》EP01：科幻剧，音效重（腾讯视频官方）"
   },
   {
     "name": "film-action-nuhuo",
@@ -78,7 +78,7 @@
     "start": 2400,
     "duration": 480,
     "sub_lang": "zh-CN",
-    "note": "怒火十二小时: action movie (gunfire, sirens), Youku Movie official. Starts at 2400 s: the 1200 s window had foreign-language dialogue with translated subtitles."
+    "note": "《怒火十二小时》：动作片，枪战与警笛（优酷电影官方）。从 40 分钟起截取：20 分钟处的片段含外语对白和中文翻译字幕，不能作参考"
   },
   {
     "name": "film-comedy-jiongba",
@@ -87,6 +87,6 @@
     "start": 900,
     "duration": 480,
     "sub_lang": "zh",
-    "note": "囧爸喜事: comedy movie, iQIYI Movie official"
+    "note": "《囧爸喜事》：喜剧电影（爱奇艺电影官方）"
   }
 ]

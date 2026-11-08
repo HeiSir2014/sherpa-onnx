@@ -77,6 +77,17 @@ def token_error_rate(ref: str, hyp: str) -> Tuple[int, int]:
     return Levenshtein.distance(ref_tokens, hyp_tokens), len(ref_tokens)
 
 
+def error_breakdown(ref: str, hyp: str) -> dict:
+    """Counts of substitutions, deletions and insertions (minimal edit)."""
+    ref_tokens = to_tokens(ref)
+    ops = Levenshtein.editops(ref_tokens, to_tokens(hyp))
+    counts = {"replace": 0, "delete": 0, "insert": 0}
+    for op in ops:
+        counts[op.tag] += 1
+    return {"sub": counts["replace"], "del": counts["delete"],
+            "ins": counts["insert"], "ref_tokens": len(ref_tokens)}
+
+
 def _seconds(h, m, s, ms) -> float:
     return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / (10 ** len(ms))
 

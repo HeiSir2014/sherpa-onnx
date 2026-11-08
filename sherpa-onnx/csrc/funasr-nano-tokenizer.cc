@@ -1547,8 +1547,7 @@ bool FunASRNanoTokenizer::IsSpecialToken(int64_t token_id) const {
 
 // Get raw token string by ID
 std::string FunASRNanoTokenizer::IdToToken(int64_t token_id) const {
-  if (token_id < 0 ||
-      static_cast<size_t>(token_id) >= id2token_.size()) {
+  if (token_id < 0 || static_cast<size_t>(token_id) >= id2token_.size()) {
     return "";
   }
   return id2token_[static_cast<size_t>(token_id)];
@@ -1571,7 +1570,8 @@ std::string FunASRNanoTokenizer::DecodeWithCallback(
   if (token_ids.empty()) return "";
 
   std::string accumulated_text;
-  accumulated_text.reserve(token_ids.size() * 4);  // Estimate average token length
+  accumulated_text.reserve(token_ids.size() *
+                           4);  // Estimate average token length
 
   StreamingDecodeState state;
   const size_t total_tokens = token_ids.size();

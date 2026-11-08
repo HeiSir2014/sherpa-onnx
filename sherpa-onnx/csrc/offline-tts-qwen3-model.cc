@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -51,20 +52,18 @@ class OfflineTtsQwen3Model::Impl {
 #endif
 
   Ort::Value RunTextProject(Ort::Value input_ids) const {
-    auto out =
-        text_project_sess_->Run({}, text_project_input_names_ptr_.data(),
-                                &input_ids, 1,
-                                text_project_output_names_ptr_.data(),
-                                text_project_output_names_ptr_.size());
+    auto out = text_project_sess_->Run({}, text_project_input_names_ptr_.data(),
+                                       &input_ids, 1,
+                                       text_project_output_names_ptr_.data(),
+                                       text_project_output_names_ptr_.size());
     return std::move(out[0]);
   }
 
   Ort::Value RunCodecEmbed(Ort::Value input_ids) const {
-    auto out =
-        codec_embed_sess_->Run({}, codec_embed_input_names_ptr_.data(),
-                               &input_ids, 1,
-                               codec_embed_output_names_ptr_.data(),
-                               codec_embed_output_names_ptr_.size());
+    auto out = codec_embed_sess_->Run({}, codec_embed_input_names_ptr_.data(),
+                                      &input_ids, 1,
+                                      codec_embed_output_names_ptr_.data(),
+                                      codec_embed_output_names_ptr_.size());
     return std::move(out[0]);
   }
 
@@ -169,8 +168,8 @@ class OfflineTtsQwen3Model::Impl {
     }
 
     auto out = talker_decode_sess_->Run(
-        {}, talker_decode_input_names_ptr_.data(), inputs.data(),
-        inputs.size(), talker_decode_output_names_ptr_.data(),
+        {}, talker_decode_input_names_ptr_.data(), inputs.data(), inputs.size(),
+        talker_decode_output_names_ptr_.data(),
         talker_decode_output_names_ptr_.size());
 
     TalkerDecodeResult result;
@@ -204,8 +203,7 @@ class OfflineTtsQwen3Model::Impl {
     InitTokenizer12hzDecode(config_.qwen3.tokenizer12hz_decode);
 
     if (!config_.qwen3.tokenizer12hz_decode_stream.empty()) {
-      InitTokenizer12hzDecodeStream(
-          config_.qwen3.tokenizer12hz_decode_stream);
+      InitTokenizer12hzDecodeStream(config_.qwen3.tokenizer12hz_decode_stream);
     }
 
     // Try to load config.json from the model directory
@@ -255,8 +253,7 @@ class OfflineTtsQwen3Model::Impl {
         if (tc.contains("codec_pad_id"))
           tts_config_.codec_pad_id = tc["codec_pad_id"].get<int64_t>();
         if (tc.contains("codec_nothink_id"))
-          tts_config_.codec_nothink_id =
-              tc["codec_nothink_id"].get<int64_t>();
+          tts_config_.codec_nothink_id = tc["codec_nothink_id"].get<int64_t>();
         if (tc.contains("codec_think_id"))
           tts_config_.codec_think_id = tc["codec_think_id"].get<int64_t>();
         if (tc.contains("codec_think_bos_id"))
@@ -275,14 +272,11 @@ class OfflineTtsQwen3Model::Impl {
 
       // Read top-level token IDs
       if (j.contains("tts_bos_token_id"))
-        tts_config_.tts_bos_token_id =
-            j["tts_bos_token_id"].get<int64_t>();
+        tts_config_.tts_bos_token_id = j["tts_bos_token_id"].get<int64_t>();
       if (j.contains("tts_eos_token_id"))
-        tts_config_.tts_eos_token_id =
-            j["tts_eos_token_id"].get<int64_t>();
+        tts_config_.tts_eos_token_id = j["tts_eos_token_id"].get<int64_t>();
       if (j.contains("tts_pad_token_id"))
-        tts_config_.tts_pad_token_id =
-            j["tts_pad_token_id"].get<int64_t>();
+        tts_config_.tts_pad_token_id = j["tts_pad_token_id"].get<int64_t>();
 
       SHERPA_ONNX_LOGE(
           "Loaded config.json: num_code_groups=%d, "
@@ -290,7 +284,6 @@ class OfflineTtsQwen3Model::Impl {
           tts_config_.num_code_groups,
           static_cast<int>(tts_config_.codec_eos_token_id),
           tts_config_.hidden_size);
-
     } catch (const std::exception &e) {
       SHERPA_ONNX_LOGE("Failed to parse config.json: %s", e.what());
     }
@@ -457,8 +450,8 @@ OfflineTtsQwen3Model::OfflineTtsQwen3Model(AAssetManager *mgr,
 #endif
 
 #if __OHOS__
-OfflineTtsQwen3Model::OfflineTtsQwen3Model(
-    NativeResourceManager *mgr, const OfflineTtsModelConfig &config)
+OfflineTtsQwen3Model::OfflineTtsQwen3Model(NativeResourceManager *mgr,
+                                           const OfflineTtsModelConfig &config)
     : impl_(std::make_unique<Impl>(mgr, config)) {}
 #endif
 
@@ -491,10 +484,9 @@ OfflineTtsQwen3Model::RunTalkerPrefill(Ort::Value inputs_embeds,
                                  std::move(attention_mask));
 }
 
-OfflineTtsQwen3Model::TalkerDecodeResult
-OfflineTtsQwen3Model::RunTalkerDecode(Ort::Value inputs_embeds,
-                                      Ort::Value attention_mask,
-                                      Qwen3TalkerState state) const {
+OfflineTtsQwen3Model::TalkerDecodeResult OfflineTtsQwen3Model::RunTalkerDecode(
+    Ort::Value inputs_embeds, Ort::Value attention_mask,
+    Qwen3TalkerState state) const {
   return impl_->RunTalkerDecode(std::move(inputs_embeds),
                                 std::move(attention_mask), std::move(state));
 }
@@ -504,8 +496,7 @@ Ort::Value OfflineTtsQwen3Model::RunSpeakerEncoder(Ort::Value mels) const {
 }
 
 OfflineTtsQwen3Model::Tokenizer12hzDecodeResult
-OfflineTtsQwen3Model::RunTokenizer12hzDecode(
-    Ort::Value audio_codes) const {
+OfflineTtsQwen3Model::RunTokenizer12hzDecode(Ort::Value audio_codes) const {
   return impl_->RunTokenizer12hzDecode(std::move(audio_codes));
 }
 

@@ -246,7 +246,8 @@ std::unique_ptr<OfflineStream> OfflineRecognizerFunASRNanoImpl::CreateStream()
 //   - dither=1.0 (prevents log(0)=-inf in silent segments)
 //   - snip_edges=True (only use complete frames, no zero-padding)
 //   - window="hamming"
-//   - upscale_samples=True (multiply by 32768, equivalent to normalize_samples=false)
+//   - upscale_samples=True (multiply by 32768, equivalent to
+//   normalize_samples=false)
 //
 // WARNING: Using different parameters (e.g., dither=0, snip_edges=false)
 // will produce completely wrong transcriptions!
@@ -264,7 +265,8 @@ void OfflineRecognizerFunASRNanoImpl::InitFeatConfig() {
   // CRITICAL: dither=1.0 adds small random noise to prevent log(0)=-inf
   // in silent audio segments. Without this, silent frames produce -inf values
   // which propagate through the network and cause completely wrong outputs.
-  // The value 1.0 is for the [-32768, 32768] range (after normalize_samples=false)
+  // The value 1.0 is for the [-32768, 32768] range (after
+  // normalize_samples=false)
   config_.feat_config.dither = 1.0f;
 
   // high_freq=0 means Nyquist frequency (8000Hz for 16kHz audio)
@@ -296,11 +298,11 @@ std::vector<float> OfflineRecognizerFunASRNanoImpl::ApplyLFR(
 }
 
 // Build source token IDs with chat template format:
-// [system_prompt] [user_prompt] <|startofspeech|> [audio_tokens] <|endofspeech|> [assistant_prompt]
-// Returns the token sequence and sets fbank_beg_idx to the start position
-// of audio tokens in the sequence.
-// Note: The <|startofspeech|> and <|endofspeech|> markers are required by
-// FunASR-nano model to properly delimit the audio embeddings in the sequence.
+// [system_prompt] [user_prompt] <|startofspeech|> [audio_tokens]
+// <|endofspeech|> [assistant_prompt] Returns the token sequence and sets
+// fbank_beg_idx to the start position of audio tokens in the sequence. Note:
+// The <|startofspeech|> and <|endofspeech|> markers are required by FunASR-nano
+// model to properly delimit the audio embeddings in the sequence.
 std::vector<int64_t> OfflineRecognizerFunASRNanoImpl::BuildSourceIds(
     const std::string &system_prompt, const std::string &user_prompt,
     int32_t audio_token_len, int32_t &fbank_beg_idx,
@@ -308,9 +310,11 @@ std::vector<int64_t> OfflineRecognizerFunASRNanoImpl::BuildSourceIds(
   const std::string system_text =
       "<|im_start|>system\n" + system_prompt + "<|im_end|>\n";
   // Add <|startofspeech|> marker before audio tokens
-  const std::string user_text = "<|im_start|>user\n" + user_prompt + "<|startofspeech|>";
+  const std::string user_text =
+      "<|im_start|>user\n" + user_prompt + "<|startofspeech|>";
   // Add <|endofspeech|> marker after audio tokens
-  const std::string after_text = "<|endofspeech|><|im_end|>\n<|im_start|>assistant\n";
+  const std::string after_text =
+      "<|endofspeech|><|im_end|>\n<|im_start|>assistant\n";
   std::vector<int64_t> ids_before = tokenizer_->Encode(system_text + user_text);
   std::vector<int64_t> ids_after = tokenizer_->Encode(after_text);
   fbank_beg_idx = static_cast<int32_t>(ids_before.size());
@@ -584,8 +588,8 @@ int64_t OfflineRecognizerFunASRNanoImpl::SampleTokenWithPenalty(
   // Apply n-gram blocking
   if (has_ngram_block) {
     for (int32_t i = 0; i < vocab_size; ++i) {
-      if (WouldCreateRepeatedNgram(static_cast<int64_t>(i), no_repeat_ngram_size,
-                                   generated_ids)) {
+      if (WouldCreateRepeatedNgram(static_cast<int64_t>(i),
+                                   no_repeat_ngram_size, generated_ids)) {
         modified_logits[i] = -1e30f;  // Block this token
       }
     }
@@ -1051,11 +1055,13 @@ OfflineRecognitionResult OfflineRecognizerFunASRNanoImpl::GenerateText(
     if (config_.model_config.debug && generated_ids.empty()) {
       std::vector<std::pair<float, int32_t>> top5;
       for (int32_t i = 0; i < vocab_size; ++i) {
-        float v = log_fp16 ? HalfBitsToFloat(reinterpret_cast<const uint16_t *>(last_logits)[i])
-                          : reinterpret_cast<const float *>(last_logits)[i];
+        float v = log_fp16 ? HalfBitsToFloat(reinterpret_cast<const uint16_t *>(
+                                 last_logits)[i])
+                           : reinterpret_cast<const float *>(last_logits)[i];
         if (top5.size() < 5 || v > top5.back().first) {
           top5.push_back({v, i});
-          std::sort(top5.begin(), top5.end(), [](auto &a, auto &b) { return a.first > b.first; });
+          std::sort(top5.begin(), top5.end(),
+                    [](auto &a, auto &b) { return a.first > b.first; });
           if (top5.size() > 5) top5.pop_back();
         }
       }
@@ -1204,7 +1210,8 @@ void OfflineRecognizerFunASRNanoImpl::DecodeStreams(OfflineStream **ss,
 }
 
 // Generate text with streaming callback support
-OfflineRecognitionResult OfflineRecognizerFunASRNanoImpl::GenerateTextWithCallback(
+OfflineRecognitionResult
+OfflineRecognizerFunASRNanoImpl::GenerateTextWithCallback(
     Ort::Value encoder_out, const std::string &system_prompt,
     const std::string &user_prompt,
     const FunASRNanoStreamingCallback &callback) const {
@@ -1537,8 +1544,7 @@ OfflineRecognitionResult OfflineRecognizerFunASRNanoImpl::GenerateTextWithCallba
 
 // Decode a single stream with streaming callback
 void OfflineRecognizerFunASRNanoImpl::DecodeStreamWithCallback(
-    OfflineStream *s,
-    const FunASRNanoStreamingCallback &callback) const {
+    OfflineStream *s, const FunASRNanoStreamingCallback &callback) const {
   if (!s) return;
   OfflineStream *streams[] = {s};
   DecodeStreamsWithCallback(streams, 1, callback);
@@ -1573,11 +1579,9 @@ void OfflineRecognizerFunASRNanoImpl::DecodeStreamsWithCallback(
 
     Ort::Value encoder_out = model_->ForwardEncoderAdaptor(std::move(features));
 
-    OfflineRecognitionResult r =
-        GenerateTextWithCallback(std::move(encoder_out),
-                                 funasr_config.system_prompt,
-                                 funasr_config.user_prompt,
-                                 callback);
+    OfflineRecognitionResult r = GenerateTextWithCallback(
+        std::move(encoder_out), funasr_config.system_prompt,
+        funasr_config.user_prompt, callback);
 
     ss[i]->SetResult(r);
   }

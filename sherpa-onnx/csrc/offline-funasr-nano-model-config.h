@@ -18,8 +18,8 @@ namespace sherpa_onnx {
 //   - token_id: The token ID that was generated
 //   - is_final: True if this is the last token
 // Returns: true to continue generation, false to stop early
-using FunASRNanoStreamingCallback =
-    std::function<bool(const std::string &text, int64_t token_id, bool is_final)>;
+using FunASRNanoStreamingCallback = std::function<bool(
+    const std::string &text, int64_t token_id, bool is_final)>;
 
 struct OfflineFunASRNanoModelConfig {
   // Path to encoder_adaptor.onnx

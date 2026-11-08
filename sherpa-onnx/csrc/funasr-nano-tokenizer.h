@@ -27,8 +27,8 @@ namespace sherpa_onnx {
 //   - token_id: The token ID that produced this text
 //   - is_final: True if this is the last token in the sequence
 // Return: false to stop generation early, true to continue
-using StreamingTokenCallback =
-    std::function<bool(const std::string &text, int64_t token_id, bool is_final)>;
+using StreamingTokenCallback = std::function<bool(
+    const std::string &text, int64_t token_id, bool is_final)>;
 
 // State class for streaming decode operations
 // Maintains pending bytes across token boundaries for proper UTF-8 handling

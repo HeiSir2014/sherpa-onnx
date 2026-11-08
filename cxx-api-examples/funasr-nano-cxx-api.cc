@@ -24,6 +24,7 @@
 #include <iomanip>
 #include <iostream>
 #include <string>
+#include <vector>
 
 #include "sherpa-onnx/csrc/offline-recognizer-funasr-nano-impl.h"
 #include "sherpa-onnx/csrc/wave-reader.h"
@@ -36,16 +37,16 @@ int32_t main(int32_t argc, char *argv[]) {
   config.model_config.provider = "cpu";
 
   // FunASR-nano model paths
-  // clang-format off
-  config.model_config.funasr_nano.encoder_adaptor = "./sherpa-onnx-funasr-nano-int8-2025-12-30/encoder_adaptor.int8.onnx";
-  config.model_config.funasr_nano.llm = "./sherpa-onnx-funasr-nano-int8-2025-12-30/llm.int8.onnx";
-  config.model_config.funasr_nano.embedding = "./sherpa-onnx-funasr-nano-int8-2025-12-30/embedding.int8.onnx";
-  config.model_config.funasr_nano.tokenizer = "./sherpa-onnx-funasr-nano-int8-2025-12-30/Qwen3-0.6B";
+  const std::string model_dir = "./sherpa-onnx-funasr-nano-int8-2025-12-30";
+  auto &funasr_nano = config.model_config.funasr_nano;
+  funasr_nano.encoder_adaptor = model_dir + "/encoder_adaptor.int8.onnx";
+  funasr_nano.llm = model_dir + "/llm.int8.onnx";
+  funasr_nano.embedding = model_dir + "/embedding.int8.onnx";
+  funasr_nano.tokenizer = model_dir + "/Qwen3-0.6B";
 
   // Use default values from OfflineFunASRNanoModelConfig:
   // - repetition_penalty=1.2: penalize repeated tokens
   // - no_repeat_ngram_size=3: block 3-gram repetitions
-  // clang-format on
 
   // Validate configuration
   if (!config.Validate()) {

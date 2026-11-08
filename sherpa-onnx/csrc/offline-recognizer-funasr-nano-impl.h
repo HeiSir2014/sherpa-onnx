@@ -15,8 +15,8 @@
 #include <vector>
 
 #include "sherpa-onnx/csrc/funasr-nano-tokenizer.h"
-#include "sherpa-onnx/csrc/offline-funasr-nano-model.h"
 #include "sherpa-onnx/csrc/offline-funasr-nano-model-config.h"
+#include "sherpa-onnx/csrc/offline-funasr-nano-model.h"
 #include "sherpa-onnx/csrc/offline-model-config.h"
 #include "sherpa-onnx/csrc/offline-recognizer-impl.h"
 #include "sherpa-onnx/csrc/offline-recognizer.h"
@@ -60,8 +60,7 @@ class OfflineRecognizerFunASRNanoImpl : public OfflineRecognizerImpl {
 
   // Decode a single stream with streaming callback
   void DecodeStreamWithCallback(
-      OfflineStream *s,
-      const FunASRNanoStreamingCallback &callback) const;
+      OfflineStream *s, const FunASRNanoStreamingCallback &callback) const;
 
   OfflineRecognizerConfig GetConfig() const override { return config_; }
 
@@ -92,8 +91,9 @@ class OfflineRecognizerFunASRNanoImpl : public OfflineRecognizerImpl {
       const std::vector<int64_t> &generated_ids) const;
 
   // Check if adding token_id would create a repeated n-gram
-  bool WouldCreateRepeatedNgram(int64_t token_id, int32_t ngram_size,
-                                const std::vector<int64_t> &generated_ids) const;
+  bool WouldCreateRepeatedNgram(
+      int64_t token_id, int32_t ngram_size,
+      const std::vector<int64_t> &generated_ids) const;
 
   OfflineRecognitionResult GenerateText(Ort::Value encoder_out,
                                        const std::string &system_prompt,
@@ -102,8 +102,7 @@ class OfflineRecognizerFunASRNanoImpl : public OfflineRecognizerImpl {
   // Generate text with streaming callback support
   // Calls the callback for each token as it's generated
   OfflineRecognitionResult GenerateTextWithCallback(
-      Ort::Value encoder_out,
-      const std::string &system_prompt,
+      Ort::Value encoder_out, const std::string &system_prompt,
       const std::string &user_prompt,
       const FunASRNanoStreamingCallback &callback) const;
 

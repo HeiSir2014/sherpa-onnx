@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -208,8 +209,7 @@ Environment variables:
       stream->AcceptWaveform(sample_rate, segment.samples.data(),
                              segment.samples.size());
 
-      float duration =
-          segment.samples.size() / static_cast<float>(sample_rate);
+      float duration = segment.samples.size() / static_cast<float>(sample_rate);
       fprintf(stderr, "[Segment %d: %.2fs] >>> ", segment_index, duration);
 
       if (enable_streaming) {

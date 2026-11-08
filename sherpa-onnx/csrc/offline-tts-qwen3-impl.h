@@ -48,20 +48,24 @@ class OfflineTtsQwen3Impl : public OfflineTtsImpl {
   // codes: each element is one frame of num_code_groups token IDs.
   // use_stream: if true, use the streaming decoder session (small-N trace);
   //             falls back to batch decoder when stream model is not loaded.
-  // Returns valid audio samples (length determined by the decoder's lengths output).
+  // Returns valid audio samples (length determined by the decoder's lengths
+  // output).
   std::vector<float> DecodeFrames(
       const std::vector<std::vector<int64_t>> &codes,
       bool use_stream = false) const;
 
   // Sample a token from logits with temperature, top-k, top-p, rep penalty.
-  // Suppress tokens in [suppress_start, suppress_end) except suppress_exception.
-  // If suppress_eos is true, also suppress the eos token (for min_new_tokens).
-  int64_t SampleFromLogits(
-      const Ort::Value &logits_tensor, int32_t vocab_size, float temperature,
-      int32_t top_k, float top_p, float repetition_penalty,
-      const std::vector<int64_t> &generated_ids, int32_t suppress_start = -1,
-      int32_t suppress_end = -1, int64_t suppress_exception = -1,
-      bool suppress_eos = false) const;
+  // Suppress tokens in [suppress_start, suppress_end) except
+  // suppress_exception. If suppress_eos is true, also suppress the eos token
+  // (for min_new_tokens).
+  int64_t SampleFromLogits(const Ort::Value &logits_tensor, int32_t vocab_size,
+                           float temperature, int32_t top_k, float top_p,
+                           float repetition_penalty,
+                           const std::vector<int64_t> &generated_ids,
+                           int32_t suppress_start = -1,
+                           int32_t suppress_end = -1,
+                           int64_t suppress_exception = -1,
+                           bool suppress_eos = false) const;
 
   OfflineTtsConfig config_;
   OfflineTtsQwen3Model model_;

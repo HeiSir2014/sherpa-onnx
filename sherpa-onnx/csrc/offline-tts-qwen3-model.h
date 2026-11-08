@@ -49,8 +49,7 @@ class OfflineTtsQwen3Model {
   explicit OfflineTtsQwen3Model(const OfflineTtsModelConfig &config);
 
 #if __ANDROID_API__ >= 9
-  OfflineTtsQwen3Model(AAssetManager *mgr,
-                       const OfflineTtsModelConfig &config);
+  OfflineTtsQwen3Model(AAssetManager *mgr, const OfflineTtsModelConfig &config);
 #endif
 
 #if __OHOS__

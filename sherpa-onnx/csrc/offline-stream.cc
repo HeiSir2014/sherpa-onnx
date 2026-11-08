@@ -137,9 +137,10 @@ class OfflineStream::Impl {
 
   void AcceptWaveform(int32_t sampling_rate, const float *waveform, int32_t n) {
     // Fix for deterministic dither in kaldi-native-fbank.
-    // The Dither() function creates a RandomState that seeds from global rand().
-    // We reset rand() state to ensure reproducible features across calls.
-    // Mutex ensures thread-safety when multiple streams process concurrently.
+    // The Dither() function creates a RandomState that seeds from global
+    // rand(). We reset rand() state to ensure reproducible features across
+    // calls. Mutex ensures thread-safety when multiple streams process
+    // concurrently.
     static std::mutex dither_mutex;
     std::lock_guard<std::mutex> lock(dither_mutex);
     std::srand(0);

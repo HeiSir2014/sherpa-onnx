@@ -60,8 +60,7 @@ struct OfflineTtsQwen3ModelConfig {
       const std::string &code_predictor, const std::string &talker_prefill,
       const std::string &talker_decode, const std::string &speaker_encoder,
       const std::string &tokenizer12hz_encode,
-      const std::string &tokenizer12hz_decode,
-      const std::string &tokenizer_dir)
+      const std::string &tokenizer12hz_decode, const std::string &tokenizer_dir)
       : text_project(text_project),
         codec_embed(codec_embed),
         code_predictor_embed(code_predictor_embed),

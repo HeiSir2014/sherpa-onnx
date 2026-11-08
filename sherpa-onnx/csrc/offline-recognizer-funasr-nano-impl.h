@@ -39,6 +39,13 @@ bool FunASRNanoAudioIsSilent(const float *features, int32_t n);
 std::string FunASRNanoBuildUserPrompt(
     const OfflineFunASRNanoModelConfig &config, const OfflineStream &stream);
 
+// Token budget for one utterance: the configured max_new_tokens, capped at
+// about 10 tokens per second of audio plus a small margin. Speech needs far
+// fewer tokens than that, so this never truncates real text, but it bounds
+// a degenerate loop ("star star star ...") to a few dozen tokens instead of
+// running to max_new_tokens. A non-positive duration disables the cap.
+int32_t FunASRNanoMaxNewTokens(int32_t configured, float audio_seconds);
+
 class OfflineRecognizerFunASRNanoImpl : public OfflineRecognizerImpl {
  public:
   explicit OfflineRecognizerFunASRNanoImpl(

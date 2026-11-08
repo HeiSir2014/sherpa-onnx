@@ -219,4 +219,19 @@ TEST(OfflineFunASRNanoModelConfig, NgramBlockingIsDisabledByDefault) {
   EXPECT_EQ(config.no_repeat_ngram_size, 0);
 }
 
+// A 3.7 s segment once looped "star star ..." up to max_new_tokens (512),
+// adding ~2000 bogus characters. Speech never needs more than a few tokens
+// per second, so the budget is capped by audio duration.
+TEST(FunASRNanoMaxNewTokens, ShortAudioCapsTheBudget) {
+  EXPECT_EQ(FunASRNanoMaxNewTokens(512, 3.7f), 53);  // ceil(37) + 16
+}
+
+TEST(FunASRNanoMaxNewTokens, LongAudioKeepsConfiguredLimit) {
+  EXPECT_EQ(FunASRNanoMaxNewTokens(512, 60.0f), 512);
+}
+
+TEST(FunASRNanoMaxNewTokens, UnknownDurationKeepsConfiguredLimit) {
+  EXPECT_EQ(FunASRNanoMaxNewTokens(512, 0.0f), 512);
+}
+
 }  // namespace sherpa_onnx

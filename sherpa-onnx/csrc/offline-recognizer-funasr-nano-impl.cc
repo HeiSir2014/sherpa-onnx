@@ -209,6 +209,20 @@ bool FunASRNanoAudioIsSilent(const float *features, int32_t n) {
   return true;
 }
 
+int32_t FunASRNanoMaxNewTokens(int32_t configured, float audio_seconds) {
+  if (audio_seconds <= 0.0f) {
+    return configured;
+  }
+  // Fast speech is ~6-8 Chinese characters per second; 10 tokens/s plus a
+  // fixed margin leaves ample headroom for real text.
+  constexpr float kTokensPerSecond = 10.0f;
+  constexpr int32_t kMargin = 16;
+  const int32_t cap =
+      static_cast<int32_t>(std::ceil(audio_seconds * kTokensPerSecond)) +
+      kMargin;
+  return std::min(configured, cap);
+}
+
 OfflineRecognizerFunASRNanoImpl::OfflineRecognizerFunASRNanoImpl(
     const OfflineRecognizerConfig &config)
     : OfflineRecognizerImpl(config),
@@ -919,7 +933,13 @@ OfflineRecognitionResult OfflineRecognizerFunASRNanoImpl::GenerateText(
 
   const int64_t eos_id = tokenizer_->GetEosTokenId();
   const int64_t im_end_id = tokenizer_->GetImEndTokenId();
-  const int32_t max_new_tokens = funasr_config.max_new_tokens;
+  // Each audio token is one LFR frame (lfr_window_shift feature frames), the
+  // same assumption the timestamp code below makes.
+  const float audio_seconds = static_cast<float>(audio_token_len) *
+                              model_->LfrWindowShift() *
+                              config_.feat_config.frame_shift_ms / 1000.0f;
+  const int32_t max_new_tokens =
+      FunASRNanoMaxNewTokens(funasr_config.max_new_tokens, audio_seconds);
 
   bool is_first_step = true;
 

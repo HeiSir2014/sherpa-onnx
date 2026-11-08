@@ -30,18 +30,34 @@ class TestOfflineFunASRNanoModelConfig(unittest.TestCase):
             (1.2, 3),
         )
 
+    def test_max_tokens_per_second_is_writable_and_zero_allowed(self):
+        config = sherpa_onnx.OfflineFunASRNanoModelConfig()
+        config.max_tokens_per_second = 0
+        self.assertEqual(config.max_tokens_per_second, 0)
+
     def test_from_funasr_nano_defaults_match_cpp(self):
+        # Compare against the C++ struct defaults, not literals, so the two
+        # cannot silently diverge.
+        cpp = sherpa_onnx.OfflineFunASRNanoModelConfig()
         params = inspect.signature(
             sherpa_onnx.OfflineRecognizer.from_funasr_nano
         ).parameters
-        self.assertEqual(
-            (
-                params["repetition_penalty"].default,
-                params["no_repeat_ngram_size"].default,
-                params["user_prompt"].default,
-            ),
-            (1.0, 0, "语音转写："),
-        )
+        for name in (
+            "repetition_penalty",
+            "no_repeat_ngram_size",
+            "max_tokens_per_second",
+            "user_prompt",
+            "system_prompt",
+            "max_new_tokens",
+            "seed",
+        ):
+            with self.subTest(name=name):
+                expected = getattr(cpp, name)
+                actual = params[name].default
+                if isinstance(expected, float):
+                    self.assertAlmostEqual(actual, expected, places=5)
+                else:
+                    self.assertEqual(actual, expected)
 
 
 if __name__ == "__main__":

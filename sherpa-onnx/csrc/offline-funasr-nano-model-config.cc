@@ -49,6 +49,10 @@ void OfflineFunASRNanoModelConfig::Register(ParseOptions *po) {
                "N-gram blocking size for FunASR-nano (0 = disabled). Off by "
                "default; enable only to stop looping output");
 
+  po->Register("funasr-nano-max-tokens-per-second", &max_tokens_per_second,
+               "Cap generated tokens at about this many per second of audio "
+               "(plus a margin) to stop runaway loops early. 0 disables it");
+
   po->Register("funasr-nano-seed", &seed, "Random seed for FunASR-nano");
 
   po->Register("funasr-nano-language", &language,
@@ -153,6 +157,14 @@ bool OfflineFunASRNanoModelConfig::Validate() const {
     return false;
   }
 
+  if (max_tokens_per_second < 0.0f) {
+    SHERPA_ONNX_LOGE(
+        "--funasr-nano-max-tokens-per-second should be >= 0 (0 disables "
+        "it). Given: %f",
+        max_tokens_per_second);
+    return false;
+  }
+
   return true;
 }
 
@@ -171,6 +183,7 @@ std::string OfflineFunASRNanoModelConfig::ToString() const {
   os << "top_p=" << top_p << ", ";
   os << "repetition_penalty=" << repetition_penalty << ", ";
   os << "no_repeat_ngram_size=" << no_repeat_ngram_size << ", ";
+  os << "max_tokens_per_second=" << max_tokens_per_second << ", ";
   os << "seed=" << seed << ", ";
   os << "language=\"" << language << "\", ";
   os << "itn=" << (itn ? "True" : "False") << ", ";

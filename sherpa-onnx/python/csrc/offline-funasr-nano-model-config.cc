@@ -25,6 +25,7 @@ void PybindOfflineFunASRNanoModelConfig(py::module *m) {
       .def_readwrite("top_p", &PyClass::top_p)
       .def_readwrite("repetition_penalty", &PyClass::repetition_penalty)
       .def_readwrite("no_repeat_ngram_size", &PyClass::no_repeat_ngram_size)
+      .def_readwrite("max_tokens_per_second", &PyClass::max_tokens_per_second)
       .def_readwrite("seed", &PyClass::seed)
       .def_readwrite("language", &PyClass::language)
       .def_readwrite("itn", &PyClass::itn)

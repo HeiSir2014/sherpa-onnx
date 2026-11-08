@@ -379,6 +379,7 @@ class OfflineRecognizer(object):
         hotwords: str = "",
         repetition_penalty: float = 1.0,
         no_repeat_ngram_size: int = 0,
+        max_tokens_per_second: float = 15.0,
     ):
         """
         Create an offline recognizer for FunASR-nano models.
@@ -447,6 +448,10 @@ class OfflineRecognizer(object):
           no_repeat_ngram_size:
             Block repeated n-grams of this size; 0 disables it. Off by
             default for the same reason as ``repetition_penalty``.
+          max_tokens_per_second:
+            Cap generated tokens at about this many per second of audio
+            (plus a small margin) so that runaway loops stop early. 0
+            disables the cap. A warning is logged when the cap is hit.
         """
         self = cls.__new__(cls)
         # Create OfflineFunASRNanoModelConfig and set attributes
@@ -466,6 +471,7 @@ class OfflineRecognizer(object):
         funasr_nano_config.hotwords = hotwords
         funasr_nano_config.repetition_penalty = repetition_penalty
         funasr_nano_config.no_repeat_ngram_size = no_repeat_ngram_size
+        funasr_nano_config.max_tokens_per_second = max_tokens_per_second
 
         model_config = OfflineModelConfig(
             funasr_nano=funasr_nano_config,

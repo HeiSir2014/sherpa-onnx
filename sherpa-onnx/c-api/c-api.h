@@ -1025,6 +1025,20 @@ typedef struct SherpaOnnxOfflineFunASRNanoModelConfig {
   int32_t itn;
   /** Optional hotwords text. */
   const char *hotwords;
+  /**
+   * Penalty for already generated tokens; 0 or 1.0 disables it (default).
+   * Enable (e.g. 1.2) only to stop looping output, mainly seen with an int8
+   * LLM; it also suppresses correct, naturally repeated characters.
+   */
+  float repetition_penalty;
+  /** Block repeated n-grams of this size; 0 disables it (default). */
+  int32_t no_repeat_ngram_size;
+  /**
+   * Cap generated tokens at about this many per second of audio, to stop
+   * runaway loops early. 0 uses the default (15); a negative value disables
+   * the cap.
+   */
+  float max_tokens_per_second;
 } SherpaOnnxOfflineFunASRNanoModelConfig;
 
 /** @brief Configuration for an offline Qwen3-ASR model. */

@@ -60,6 +60,13 @@ struct OfflineFunASRNanoModelConfig {
   // Off by default for the same reason as repetition_penalty.
   int32_t no_repeat_ngram_size = 0;
 
+  // Caps generated tokens at about this many per second of audio (plus a
+  // small margin), so a degenerate loop stops early instead of running to
+  // max_new_tokens. 0 disables the cap. Chinese speech measured at most
+  // 7.5 tokens/s; 15 leaves headroom for languages with more tokens per
+  // syllable.
+  float max_tokens_per_second = 15.0f;
+
   // Random seed for reproducibility
   int32_t seed = 42;
 

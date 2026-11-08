@@ -209,16 +209,15 @@ bool FunASRNanoAudioIsSilent(const float *features, int32_t n) {
   return true;
 }
 
-int32_t FunASRNanoMaxNewTokens(int32_t configured, float audio_seconds) {
-  if (audio_seconds <= 0.0f) {
+int32_t FunASRNanoMaxNewTokens(int32_t configured, float audio_seconds,
+                               float tokens_per_second) {
+  if (audio_seconds <= 0.0f || tokens_per_second <= 0.0f) {
     return configured;
   }
-  // Fast speech is ~6-8 Chinese characters per second; 10 tokens/s plus a
-  // fixed margin leaves ample headroom for real text.
-  constexpr float kTokensPerSecond = 10.0f;
+  // Fixed margin so very short utterances still get a usable budget.
   constexpr int32_t kMargin = 16;
   const int32_t cap =
-      static_cast<int32_t>(std::ceil(audio_seconds * kTokensPerSecond)) +
+      static_cast<int32_t>(std::ceil(audio_seconds * tokens_per_second)) +
       kMargin;
   return std::min(configured, cap);
 }
@@ -939,7 +938,8 @@ OfflineRecognitionResult OfflineRecognizerFunASRNanoImpl::GenerateText(
                               model_->LfrWindowShift() *
                               config_.feat_config.frame_shift_ms / 1000.0f;
   const int32_t max_new_tokens =
-      FunASRNanoMaxNewTokens(funasr_config.max_new_tokens, audio_seconds);
+      FunASRNanoMaxNewTokens(funasr_config.max_new_tokens, audio_seconds,
+                             funasr_config.max_tokens_per_second);
 
   bool is_first_step = true;
 
@@ -1120,6 +1120,17 @@ OfflineRecognitionResult OfflineRecognizerFunASRNanoImpl::GenerateText(
 
     // valid_len represents the kv_seq_len for the next decode step.
     valid_len += 1;
+  }
+
+  if (max_new_tokens < funasr_config.max_new_tokens &&
+      static_cast<int32_t>(generated_ids.size()) >= max_new_tokens) {
+    // Hitting the duration-based budget almost always means a loop; say so,
+    // so that real truncation (e.g. a wrong rate) is visible too.
+    SHERPA_ONNX_LOGE(
+        "FunASR-nano: stopped at %d tokens for %.2f s of audio "
+        "(max_tokens_per_second=%.1f). Likely repetitive output; set "
+        "max_tokens_per_second=0 to disable this cap.",
+        max_new_tokens, audio_seconds, funasr_config.max_tokens_per_second);
   }
 
   if (callback) {

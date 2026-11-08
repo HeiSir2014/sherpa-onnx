@@ -76,6 +76,7 @@ tar xvf sherpa-onnx-funasr-nano-int8-2025-12-30.tar.bz2
 | `top_p` | float | 0.8 | Top-p (nucleus) sampling threshold |
 | `repetition_penalty` | float | 1.0 | Penalty for repeated tokens (1.0 = none) |
 | `no_repeat_ngram_size` | int32 | 0 | Block repeated n-grams (0 = disabled) |
+| `max_tokens_per_second` | float | 15 | Cap generated tokens at ~this rate × audio seconds + 16, so loops stop early; logs a warning when hit (0 = disabled; in the C API, 0 = default and < 0 = disabled) |
 | `seed` | int32 | 42 | Random seed for reproducibility |
 
 ## Repetition Control
@@ -97,7 +98,9 @@ Both are **disabled by default**.
 >
 > Chinese text naturally repeats common characters, so penalties also suppress
 > correct tokens. Enable them only to stop looping when you cannot use a
-> higher-precision LLM. An fp16 LLM is available at
+> higher-precision LLM. `max_tokens_per_second` (on by default, 15) already
+> bounds any loop without touching normal output: on 811 Chinese VAD segments,
+> real text needed at most 7.5 tokens/s. An fp16 LLM is available at
 > <https://modelscope.cn/models/zengshuishui/FunASR-nano-onnx>
 > (`llm_fp16/llm.fp16.onnx`).
 

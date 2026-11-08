@@ -223,15 +223,27 @@ TEST(OfflineFunASRNanoModelConfig, NgramBlockingIsDisabledByDefault) {
 // adding ~2000 bogus characters. Speech never needs more than a few tokens
 // per second, so the budget is capped by audio duration.
 TEST(FunASRNanoMaxNewTokens, ShortAudioCapsTheBudget) {
-  EXPECT_EQ(FunASRNanoMaxNewTokens(512, 3.7f), 53);  // ceil(37) + 16
+  EXPECT_EQ(FunASRNanoMaxNewTokens(512, 3.7f, 10.0f), 53);  // ceil(37) + 16
 }
 
 TEST(FunASRNanoMaxNewTokens, LongAudioKeepsConfiguredLimit) {
-  EXPECT_EQ(FunASRNanoMaxNewTokens(512, 60.0f), 512);
+  EXPECT_EQ(FunASRNanoMaxNewTokens(512, 60.0f, 10.0f), 512);
 }
 
 TEST(FunASRNanoMaxNewTokens, UnknownDurationKeepsConfiguredLimit) {
-  EXPECT_EQ(FunASRNanoMaxNewTokens(512, 0.0f), 512);
+  EXPECT_EQ(FunASRNanoMaxNewTokens(512, 0.0f, 10.0f), 512);
+}
+
+TEST(FunASRNanoMaxNewTokens, ZeroRateDisablesTheCap) {
+  EXPECT_EQ(FunASRNanoMaxNewTokens(512, 3.7f, 0.0f), 512);
+}
+
+// Measured on 811 Chinese VAD segments: max 7.5 tokens/s (p99 6.5). The
+// default leaves headroom for languages whose syllables split into more
+// tokens (e.g. Vietnamese, Japanese).
+TEST(OfflineFunASRNanoModelConfig, MaxTokensPerSecondDefaultsTo15) {
+  OfflineFunASRNanoModelConfig config;
+  EXPECT_FLOAT_EQ(config.max_tokens_per_second, 15.0f);
 }
 
 }  // namespace sherpa_onnx

@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 #if __ANDROID_API__ >= 9
@@ -43,6 +44,13 @@ struct Qwen3TtsConfig {
   int64_t codec_think_bos_id = 2156;
   int64_t codec_think_eos_id = 2157;
 };
+
+// Updates `config` from the text of a config.json. Talker fields are read
+// from the "talker_config" object (Hugging Face format) or, if it is absent,
+// from the top level (format written by scripts/qwen3-tts/export-onnx.py).
+// Fields that are missing keep their current values. Returns false, leaving
+// `config` unchanged, if the text is not valid JSON.
+bool ParseQwen3TtsConfigJson(const std::string &text, Qwen3TtsConfig *config);
 
 class OfflineTtsQwen3Model {
  public:

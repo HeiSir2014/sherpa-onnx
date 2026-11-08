@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <fstream>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -20,6 +21,44 @@
 namespace sherpa_onnx {
 
 using json = nlohmann::json;
+
+namespace {
+
+template <typename T>
+void ReadIfPresent(const json &j, const char *key, T *value) {
+  auto it = j.find(key);
+  if (it != j.end() && it->is_number_integer()) *value = it->get<T>();
+}
+
+}  // namespace
+
+bool ParseQwen3TtsConfigJson(const std::string &text,
+                             Qwen3TtsConfig *config) {
+  const json j = json::parse(text, nullptr, /*allow_exceptions=*/false);
+  if (j.is_discarded() || !j.is_object()) return false;
+
+  Qwen3TtsConfig c = *config;
+  auto talker = j.find("talker_config");
+  const json &tc =
+      (talker != j.end() && talker->is_object()) ? *talker : j;
+  ReadIfPresent(tc, "codec_bos_id", &c.codec_bos_id);
+  ReadIfPresent(tc, "codec_eos_token_id", &c.codec_eos_token_id);
+  ReadIfPresent(tc, "codec_pad_id", &c.codec_pad_id);
+  ReadIfPresent(tc, "codec_nothink_id", &c.codec_nothink_id);
+  ReadIfPresent(tc, "codec_think_id", &c.codec_think_id);
+  ReadIfPresent(tc, "codec_think_bos_id", &c.codec_think_bos_id);
+  ReadIfPresent(tc, "codec_think_eos_id", &c.codec_think_eos_id);
+  ReadIfPresent(tc, "num_code_groups", &c.num_code_groups);
+  ReadIfPresent(tc, "hidden_size", &c.hidden_size);
+  ReadIfPresent(tc, "vocab_size", &c.talker_vocab_size);
+
+  ReadIfPresent(j, "tts_bos_token_id", &c.tts_bos_token_id);
+  ReadIfPresent(j, "tts_eos_token_id", &c.tts_eos_token_id);
+  ReadIfPresent(j, "tts_pad_token_id", &c.tts_pad_token_id);
+
+  *config = c;
+  return true;
+}
 
 class OfflineTtsQwen3Model::Impl {
  public:
@@ -239,54 +278,20 @@ class OfflineTtsQwen3Model::Impl {
       return;
     }
 
-    try {
-      json j = json::parse(ifs);
-
-      // Read talker_config token IDs
-      if (j.contains("talker_config")) {
-        auto &tc = j["talker_config"];
-        if (tc.contains("codec_bos_id"))
-          tts_config_.codec_bos_id = tc["codec_bos_id"].get<int64_t>();
-        if (tc.contains("codec_eos_token_id"))
-          tts_config_.codec_eos_token_id =
-              tc["codec_eos_token_id"].get<int64_t>();
-        if (tc.contains("codec_pad_id"))
-          tts_config_.codec_pad_id = tc["codec_pad_id"].get<int64_t>();
-        if (tc.contains("codec_nothink_id"))
-          tts_config_.codec_nothink_id = tc["codec_nothink_id"].get<int64_t>();
-        if (tc.contains("codec_think_id"))
-          tts_config_.codec_think_id = tc["codec_think_id"].get<int64_t>();
-        if (tc.contains("codec_think_bos_id"))
-          tts_config_.codec_think_bos_id =
-              tc["codec_think_bos_id"].get<int64_t>();
-        if (tc.contains("codec_think_eos_id"))
-          tts_config_.codec_think_eos_id =
-              tc["codec_think_eos_id"].get<int64_t>();
-        if (tc.contains("num_code_groups"))
-          tts_config_.num_code_groups = tc["num_code_groups"].get<int32_t>();
-        if (tc.contains("hidden_size"))
-          tts_config_.hidden_size = tc["hidden_size"].get<int32_t>();
-        if (tc.contains("vocab_size"))
-          tts_config_.talker_vocab_size = tc["vocab_size"].get<int32_t>();
-      }
-
-      // Read top-level token IDs
-      if (j.contains("tts_bos_token_id"))
-        tts_config_.tts_bos_token_id = j["tts_bos_token_id"].get<int64_t>();
-      if (j.contains("tts_eos_token_id"))
-        tts_config_.tts_eos_token_id = j["tts_eos_token_id"].get<int64_t>();
-      if (j.contains("tts_pad_token_id"))
-        tts_config_.tts_pad_token_id = j["tts_pad_token_id"].get<int64_t>();
-
-      SHERPA_ONNX_LOGE(
-          "Loaded config.json: num_code_groups=%d, "
-          "codec_eos=%d, hidden_size=%d",
-          tts_config_.num_code_groups,
-          static_cast<int>(tts_config_.codec_eos_token_id),
-          tts_config_.hidden_size);
-    } catch (const std::exception &e) {
-      SHERPA_ONNX_LOGE("Failed to parse config.json: %s", e.what());
+    std::ostringstream text;
+    text << ifs.rdbuf();
+    if (!ParseQwen3TtsConfigJson(text.str(), &tts_config_)) {
+      SHERPA_ONNX_LOGE("Failed to parse %s, using default token IDs",
+                       config_path.c_str());
+      return;
     }
+
+    SHERPA_ONNX_LOGE(
+        "Loaded config.json: num_code_groups=%d, "
+        "codec_eos=%d, hidden_size=%d",
+        tts_config_.num_code_groups,
+        static_cast<int>(tts_config_.codec_eos_token_id),
+        tts_config_.hidden_size);
   }
 
   void InitSession(const std::string &model_path,

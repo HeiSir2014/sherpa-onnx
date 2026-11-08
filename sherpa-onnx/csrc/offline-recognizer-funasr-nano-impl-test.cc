@@ -206,4 +206,17 @@ TEST(FunASRNanoAudioIsSilent, EmptyInputIsNotSilence) {
   EXPECT_FALSE(FunASRNanoAudioIsSilent(&unused, 0));
 }
 
+// Penalties must be opt-in. Chinese text naturally repeats common characters,
+// and on real meeting audio a 1.2 penalty with 3-gram blocking raised CER
+// from 24.9% to 38.9% with an fp16 LLM (scripts/asr-eval).
+TEST(OfflineFunASRNanoModelConfig, RepetitionPenaltyIsDisabledByDefault) {
+  OfflineFunASRNanoModelConfig config;
+  EXPECT_FLOAT_EQ(config.repetition_penalty, 1.0f);
+}
+
+TEST(OfflineFunASRNanoModelConfig, NgramBlockingIsDisabledByDefault) {
+  OfflineFunASRNanoModelConfig config;
+  EXPECT_EQ(config.no_repeat_ngram_size, 0);
+}
+
 }  // namespace sherpa_onnx

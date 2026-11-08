@@ -377,6 +377,8 @@ class OfflineRecognizer(object):
         language: str = "",
         itn: bool = True,
         hotwords: str = "",
+        repetition_penalty: float = 1.0,
+        no_repeat_ngram_size: int = 0,
     ):
         """
         Create an offline recognizer for FunASR-nano models.
@@ -437,6 +439,14 @@ class OfflineRecognizer(object):
             Whether to apply inverse text normalization (default: True).
           hotwords:
             Hotwords (comma-separated, e.g., "Sherpa,FunASR").
+          repetition_penalty:
+            Penalty for already generated tokens; 1.0 disables it. Off by
+            default because it also suppresses correct, naturally repeated
+            Chinese characters. Enable (e.g. 1.2) only to stop looping output,
+            which mainly happens with an int8 LLM.
+          no_repeat_ngram_size:
+            Block repeated n-grams of this size; 0 disables it. Off by
+            default for the same reason as ``repetition_penalty``.
         """
         self = cls.__new__(cls)
         # Create OfflineFunASRNanoModelConfig and set attributes
@@ -454,6 +464,8 @@ class OfflineRecognizer(object):
         funasr_nano_config.language = language
         funasr_nano_config.itn = itn
         funasr_nano_config.hotwords = hotwords
+        funasr_nano_config.repetition_penalty = repetition_penalty
+        funasr_nano_config.no_repeat_ngram_size = no_repeat_ngram_size
 
         model_config = OfflineModelConfig(
             funasr_nano=funasr_nano_config,

@@ -74,13 +74,32 @@ tar xvf sherpa-onnx-funasr-nano-int8-2025-12-30.tar.bz2
 | `max_new_tokens` | int32 | 512 | Maximum tokens to generate |
 | `temperature` | float | 1e-6 | Sampling temperature (near 0 = greedy) |
 | `top_p` | float | 0.8 | Top-p (nucleus) sampling threshold |
-| `repetition_penalty` | float | 1.2 | Penalty for repeated tokens (1.0 = none) |
-| `no_repeat_ngram_size` | int32 | 3 | Block repeated n-grams (0 = disabled) |
+| `repetition_penalty` | float | 1.0 | Penalty for repeated tokens (1.0 = none) |
+| `no_repeat_ngram_size` | int32 | 0 | Block repeated n-grams (0 = disabled) |
 | `seed` | int32 | 42 | Random seed for reproducibility |
 
 ## Repetition Control
 
-FunASR-Nano includes two mechanisms to prevent repetitive output, which is especially important for dialect recognition:
+FunASR-Nano has two opt-in mechanisms against repetitive (looping) output.
+Both are **disabled by default**.
+
+> **Use an fp16 LLM rather than turning these on.** Looping comes mainly from
+> the int8 LLM (`llm.int8.onnx`), not from the model itself. On 8-minute meeting
+> clips from `scripts/asr-eval`, the 101 s window used for this comparison
+> scored:
+>
+> | LLM | Penalties | CER |
+> |---|---|---|
+> | int8 | off | 134.8% (loops such as "对对对对…") |
+> | int8 | 1.2 + 3-gram | 60.4% (many dropped words) |
+> | fp16 | off | **24.9%** |
+> | fp16 | 1.2 + 3-gram | 38.9% |
+>
+> Chinese text naturally repeats common characters, so penalties also suppress
+> correct tokens. Enable them only to stop looping when you cannot use a
+> higher-precision LLM. An fp16 LLM is available at
+> <https://modelscope.cn/models/zengshuishui/FunASR-nano-onnx>
+> (`llm_fp16/llm.fp16.onnx`).
 
 ### Repetition Penalty
 
@@ -139,8 +158,9 @@ config.model_config.funasr_nano.encoder_adaptor = "encoder_adaptor.int8.onnx";
 config.model_config.funasr_nano.llm = "llm.int8.onnx";
 config.model_config.funasr_nano.embedding = "embedding.int8.onnx";
 config.model_config.funasr_nano.tokenizer = "Qwen3-0.6B";
-config.model_config.funasr_nano.repetition_penalty = 1.2f;  // Penalize repeats
-config.model_config.funasr_nano.no_repeat_ngram_size = 3;   // Block trigrams
+// Optional, off by default; only if the LLM loops (see Repetition Control)
+// config.model_config.funasr_nano.repetition_penalty = 1.2f;
+// config.model_config.funasr_nano.no_repeat_ngram_size = 3;
 
 OfflineRecognizerFunASRNanoImpl recognizer(config);
 
@@ -308,7 +328,9 @@ cd go-api-examples/non-streaming-funasr-nano-decode-files
 | Hunan dialect (湖南话) | Good | dia_hunan.wav | Use repetition penalty |
 | Vietnamese | Experimental | vietnamese.wav | |
 
-**Note**: For dialect audio, it's recommended to enable `repetition_penalty=1.2` and `no_repeat_ngram_size=3` to prevent repetitive output.
+**Note**: If dialect audio loops with the int8 LLM, prefer an fp16 LLM. Use
+`repetition_penalty=1.2` and `no_repeat_ngram_size=3` only as a fallback (see
+Repetition Control).
 
 ## Test Audio Files
 
@@ -370,9 +392,10 @@ See `dotnet-examples/vad-non-streaming-funasr-nano/` for complete examples.
    - Consider using smaller models for constrained devices
 
 4. **Repetitive output (e.g., "那那那那...")**
-   - Enable repetition penalty: `repetition_penalty = 1.2`
-   - Enable n-gram blocking: `no_repeat_ngram_size = 3`
-   - This is common with dialect audio where the model is less confident
+   - First switch to an fp16 LLM: looping comes mainly from int8 quantization
+     of the LLM (see Repetition Control)
+   - If you must stay on int8: `repetition_penalty = 1.2` and
+     `no_repeat_ngram_size = 3` stop the loops but drop correct words
 
 5. **Slow inference**
    - Reduce `max_new_tokens` if you expect shorter transcriptions
@@ -384,3 +407,5 @@ See `dotnet-examples/vad-non-streaming-funasr-nano/` for complete examples.
 - **v1.12.23**: Fixed UnicodeDecodeError in tokenizer (PR #3058)
 - **v1.12.22**: Added Dart API support (PR #3055)
 - **v1.12.24**: Added repetition penalty and n-gram blocking for dialect support
+- **v2.0.1 (fork)**: Repetition penalty and n-gram blocking are now off by
+  default (they reduced accuracy on an fp16 LLM). Both are exposed in Python.

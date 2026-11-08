@@ -44,9 +44,12 @@ int32_t main(int32_t argc, char *argv[]) {
   funasr_nano.embedding = model_dir + "/embedding.int8.onnx";
   funasr_nano.tokenizer = model_dir + "/Qwen3-0.6B";
 
-  // Use default values from OfflineFunASRNanoModelConfig:
-  // - repetition_penalty=1.2: penalize repeated tokens
-  // - no_repeat_ngram_size=3: block 3-gram repetitions
+  // repetition_penalty and no_repeat_ngram_size are off by default. The int8
+  // LLM in this package can loop on long or noisy audio. Prefer an fp16 LLM
+  // for real workloads; enabling the penalties trades looping for dropped
+  // words, e.g.:
+  //   funasr_nano.repetition_penalty = 1.2f;
+  //   funasr_nano.no_repeat_ngram_size = 3;
 
   // Validate configuration
   if (!config.Validate()) {

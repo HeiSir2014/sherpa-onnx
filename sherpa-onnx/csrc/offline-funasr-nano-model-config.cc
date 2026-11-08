@@ -42,10 +42,12 @@ void OfflineFunASRNanoModelConfig::Register(ParseOptions *po) {
                "Top-p (nucleus) sampling threshold for FunASR-nano");
 
   po->Register("funasr-nano-repetition-penalty", &repetition_penalty,
-               "Repetition penalty for FunASR-nano (1.0 = no penalty)");
+               "Repetition penalty for FunASR-nano (1.0 = no penalty). Off by "
+               "default; enable only to stop looping output");
 
   po->Register("funasr-nano-no-repeat-ngram-size", &no_repeat_ngram_size,
-               "N-gram blocking size for FunASR-nano (0 = disabled)");
+               "N-gram blocking size for FunASR-nano (0 = disabled). Off by "
+               "default; enable only to stop looping output");
 
   po->Register("funasr-nano-seed", &seed, "Random seed for FunASR-nano");
 

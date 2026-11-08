@@ -152,21 +152,46 @@ GeneratedAudio OfflineTtsQwen3Impl::Generate(
   // max_codes_length=1024, so every call costs ~16 s on M-series CPU regardless
   // of input length.  Calling it once per chunk would be 10-40× slower than a
   // single batch decode.  Only use the batch decoder once, at the end.
-  const int32_t chunk_frames = gen_config.GetExtraInt("chunk_frames", 0);
+  int32_t chunk_frames = gen_config.GetExtraInt("chunk_frames", 0);
   const bool streaming = (chunk_frames > 0) && (callback != nullptr);
   const bool has_stream_decoder = model_.HasTokenizer12hzDecodeStream();
   // context_frames: previous codec frames prepended for the stream decoder to
   // give left context at chunk boundaries.
   // context=0  → fast, corr≈0.83 vs batch
-  // context=50 → trace_T=75, corr=1.00 vs batch (default)
-  const int32_t context_frames = gen_config.GetExtraInt("context_frames", 50);
+  // context=50 → corr=1.00 vs batch (default; reduced below to what the
+  //              stream decoder can hold together with the chunk)
+  int32_t context_frames = gen_config.GetExtraInt("context_frames", 50);
+
+  // The stream decoder returns at most stream_max_frames frames per call and
+  // silently cuts off the rest, so every call must fit: chunk + context.
+  const int32_t stream_max_frames = model_.Tokenizer12hzDecodeStreamMaxFrames();
+  // Batch mode with the stream decoder decodes in windows of this size.
+  constexpr int32_t kBatchWindowFrames = 25;
+  const Qwen3StreamWindow batch_window = Qwen3FitStreamWindow(
+      kBatchWindowFrames, context_frames, stream_max_frames);
+  if (streaming && has_stream_decoder) {
+    const Qwen3StreamWindow w =
+        Qwen3FitStreamWindow(chunk_frames, context_frames, stream_max_frames);
+    if (config_.model.debug &&
+        !(w == Qwen3StreamWindow{chunk_frames, context_frames})) {
+      SHERPA_ONNX_LOGE(
+          "chunk_frames=%d + context_frames=%d exceed the stream decoder's "
+          "%d frames; using %d + %d",
+          chunk_frames, context_frames, stream_max_frames, w.chunk_frames,
+          w.context_frames);
+    }
+    chunk_frames = w.chunk_frames;
+    context_frames = w.context_frames;
+  }
   // Codec frames kept from the previous chunk to use as left context.
   std::vector<std::vector<int64_t>> context_codes;
   // overlap_frames: audio crossfade window at chunk boundaries (codec frames).
   const int32_t overlap_frames = gen_config.GetExtraInt("overlap_frames", 2);
   const int32_t kSamplesPerFrame = 1920;
+  // Used wherever audio is decoded chunk-wise with the stream decoder
+  // (streaming, and batch mode's windowed decode).
   const int32_t crossfade_samples =
-      (streaming && has_stream_decoder) ? overlap_frames * kSamplesPerFrame : 0;
+      has_stream_decoder ? overlap_frames * kSamplesPerFrame : 0;
   // Joins per-chunk decoder output: crossfades each chunk's re-decoded
   // left context with the held end of the previous chunk (same time span).
   Qwen3StreamStitcher stitcher(crossfade_samples);
@@ -183,11 +208,14 @@ GeneratedAudio OfflineTtsQwen3Impl::Generate(
     SHERPA_ONNX_LOGE("Text tokenized: %d tokens", (int)input_ids.size());
 
   // The template adds 3 role tokens before and 5 tokens after the text. With
-  // no text tokens in between there is nothing to synthesize.
+  // no text tokens in between there is nothing to synthesize. Whitespace-only
+  // text is treated the same: the model never ends it (runs to
+  // max_new_tokens).
   constexpr int32_t kTemplatePrefixTokens = 3;
   constexpr int32_t kTemplateSuffixTokens = 5;
-  if (static_cast<int32_t>(input_ids.size()) <=
-      kTemplatePrefixTokens + kTemplateSuffixTokens) {
+  if (text.find_first_not_of(" \t\n\r\f\v") == std::string::npos ||
+      static_cast<int32_t>(input_ids.size()) <=
+          kTemplatePrefixTokens + kTemplateSuffixTokens) {
     SHERPA_ONNX_LOGE("Qwen3-TTS: no text to synthesize in '%s'", text.c_str());
     GeneratedAudio empty;
     empty.sample_rate = SampleRate();
@@ -560,12 +588,22 @@ GeneratedAudio OfflineTtsQwen3Impl::Generate(
       auto held = stitcher.Flush();
       mode_a_rest.insert(mode_a_rest.end(), held.begin(), held.end());
     }
+  } else if (remaining > 0 && has_stream_decoder) {
+    // Batch mode with the stream decoder (much faster than the fixed
+    // trace_T=1024 batch decoder). It holds only a few seconds per call, so
+    // decode in windows exactly like streaming does: same output.
+    audio.samples = Qwen3DecodeWindowed(
+        remaining, batch_window.chunk_frames, batch_window.context_frames,
+        crossfade_samples, kSamplesPerFrame,
+        [this, &all_codes](int32_t begin, int32_t end) {
+          return DecodeFrames({all_codes.begin() + begin,
+                               all_codes.begin() + end},
+                              /*use_stream=*/true);
+        });
   } else if (remaining > 0) {
-    // Batch mode, or fake streaming (no stream decoder): decode all frames
-    // once. Batch mode uses the fast stream decoder when available (same
-    // quality, much faster than the fixed trace_T=1024 batch decoder).
-    audio.samples = DecodeFrames(
-        all_codes, /*use_stream=*/!streaming && has_stream_decoder);
+    // Batch mode or fake streaming without a stream decoder: decode all
+    // frames at once with the batch decoder.
+    audio.samples = DecodeFrames(all_codes, /*use_stream=*/false);
   }
   auto t_decode_end = std::chrono::steady_clock::now();
 

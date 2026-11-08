@@ -6,6 +6,7 @@
 #define SHERPA_ONNX_CSRC_OFFLINE_TTS_QWEN3_STREAM_STITCHER_H_
 
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 namespace sherpa_onnx {
@@ -40,6 +41,35 @@ class Qwen3StreamStitcher {
   int32_t crossfade_samples_;
   std::vector<float> held_;
 };
+
+// Chunk and left-context sizes (in codec frames) for one decoder call.
+struct Qwen3StreamWindow {
+  int32_t chunk_frames;
+  int32_t context_frames;
+
+  bool operator==(const Qwen3StreamWindow &o) const {
+    return chunk_frames == o.chunk_frames &&
+           context_frames == o.context_frames;
+  }
+};
+
+// Shrinks a window so that chunk + context fits a decoder that can produce
+// at most `max_frames` frames per call; frames beyond that are cut off by
+// the decoder. The context is reduced first; the chunk only if it alone is
+// too large. max_frames <= 0 means unknown capacity: nothing is changed.
+Qwen3StreamWindow Qwen3FitStreamWindow(int32_t chunk_frames,
+                                       int32_t context_frames,
+                                       int32_t max_frames);
+
+// Decodes frames [0, num_frames) in windows of `window_frames` new frames,
+// each with up to `context_frames` frames of left context, and stitches the
+// results with Qwen3StreamStitcher. `decode(begin, end)` must return the
+// audio for frames [begin, end). Gives the same result as the streaming
+// path with the same window, so batch and streaming output agree.
+std::vector<float> Qwen3DecodeWindowed(
+    int32_t num_frames, int32_t window_frames, int32_t context_frames,
+    int32_t crossfade_samples, int32_t samples_per_frame,
+    const std::function<std::vector<float>(int32_t, int32_t)> &decode);
 
 }  // namespace sherpa_onnx
 

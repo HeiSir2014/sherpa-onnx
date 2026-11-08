@@ -51,4 +51,34 @@ std::vector<float> Qwen3StreamStitcher::Flush() {
   return out;
 }
 
+Qwen3StreamWindow Qwen3FitStreamWindow(int32_t chunk_frames,
+                                       int32_t context_frames,
+                                       int32_t max_frames) {
+  if (max_frames <= 0) return {chunk_frames, context_frames};
+  const int32_t chunk = std::min(chunk_frames, max_frames);
+  const int32_t context = std::min(context_frames, max_frames - chunk);
+  return {chunk, std::max(context, 0)};
+}
+
+std::vector<float> Qwen3DecodeWindowed(
+    int32_t num_frames, int32_t window_frames, int32_t context_frames,
+    int32_t crossfade_samples, int32_t samples_per_frame,
+    const std::function<std::vector<float>(int32_t, int32_t)> &decode) {
+  window_frames = std::max(window_frames, 1);
+  context_frames = std::max(context_frames, 0);
+
+  Qwen3StreamStitcher stitcher(crossfade_samples);
+  std::vector<float> out;
+  for (int32_t start = 0; start < num_frames; start += window_frames) {
+    const int32_t end = std::min(start + window_frames, num_frames);
+    const int32_t context = std::min(context_frames, start);
+    auto piece = stitcher.Push(decode(start - context, end),
+                               context * samples_per_frame);
+    out.insert(out.end(), piece.begin(), piece.end());
+  }
+  auto tail = stitcher.Flush();
+  out.insert(out.end(), tail.begin(), tail.end());
+  return out;
+}
+
 }  // namespace sherpa_onnx

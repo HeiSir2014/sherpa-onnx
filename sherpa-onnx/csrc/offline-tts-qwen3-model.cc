@@ -174,6 +174,10 @@ class OfflineTtsQwen3Model::Impl {
     return tokenizer12hz_decode_stream_sess_ != nullptr;
   }
 
+  int32_t Tokenizer12hzDecodeStreamMaxFrames() const {
+    return tokenizer12hz_decode_stream_max_frames_;
+  }
+
   TalkerPrefillResult RunTalkerPrefill(Ort::Value inputs_embeds,
                                        Ort::Value attention_mask) const {
     std::array<Ort::Value, 2> inputs = {std::move(inputs_embeds),
@@ -247,6 +251,39 @@ class OfflineTtsQwen3Model::Impl {
 
     // Try to load config.json from the model directory
     LoadConfigJson();
+
+    if (tokenizer12hz_decode_stream_sess_) {
+      tokenizer12hz_decode_stream_max_frames_ = ProbeStreamDecoderMaxFrames();
+    }
+  }
+
+  // The stream decoder is traced with a fixed output buffer: its output
+  // shape is dynamic in the metadata, but every call returns the same number
+  // of samples and audio beyond that is cut off. Decode one frame to learn
+  // the buffer size and the samples per frame. Returns 0 if unknown.
+  int32_t ProbeStreamDecoderMaxFrames() const {
+    std::array<int64_t, 3> shape = {1, 1, tts_config_.num_code_groups};
+    Ort::Value codes = Ort::Value::CreateTensor(
+        allocator_, shape.data(), shape.size(),
+        ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64);
+    std::fill_n(codes.GetTensorMutableData<int64_t>(),
+                tts_config_.num_code_groups, 0);
+
+    auto result = RunTokenizer12hzDecodeStream(std::move(codes));
+    if (!result.lengths.IsTensor()) return 0;
+
+    const int64_t samples_per_frame =
+        result.lengths.GetTensorData<int64_t>()[0];
+    const int64_t buffer =
+        result.audio_values.GetTensorTypeAndShapeInfo().GetElementCount();
+    if (samples_per_frame <= 0) return 0;
+
+    const int32_t max_frames = static_cast<int32_t>(buffer / samples_per_frame);
+    if (config_.debug) {
+      SHERPA_ONNX_LOGE("Stream decoder holds at most %d frames per call",
+                       max_frames);
+    }
+    return max_frames;
   }
 
 #if __ANDROID_API__ >= 9
@@ -397,6 +434,8 @@ class OfflineTtsQwen3Model::Impl {
   std::unique_ptr<Ort::Session> tokenizer12hz_decode_sess_;
   // Optional streaming decoder (small-N trace for low-latency chunk decode)
   std::unique_ptr<Ort::Session> tokenizer12hz_decode_stream_sess_;
+  // Frames the stream decoder can return per call; 0 = unknown.
+  int32_t tokenizer12hz_decode_stream_max_frames_ = 0;
 
   // Input/output names for each session
   std::vector<std::string> text_project_input_names_;
@@ -509,6 +548,10 @@ OfflineTtsQwen3Model::Tokenizer12hzDecodeResult
 OfflineTtsQwen3Model::RunTokenizer12hzDecodeStream(
     Ort::Value audio_codes) const {
   return impl_->RunTokenizer12hzDecodeStream(std::move(audio_codes));
+}
+
+int32_t OfflineTtsQwen3Model::Tokenizer12hzDecodeStreamMaxFrames() const {
+  return impl_->Tokenizer12hzDecodeStreamMaxFrames();
 }
 
 bool OfflineTtsQwen3Model::HasTokenizer12hzDecodeStream() const {

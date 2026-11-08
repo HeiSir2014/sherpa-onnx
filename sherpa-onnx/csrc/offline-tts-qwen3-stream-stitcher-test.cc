@@ -87,5 +87,58 @@ TEST(Qwen3StreamStitcher, FlushOnEmptyIsEmpty) {
   EXPECT_TRUE(stitcher.Flush().empty());
 }
 
+TEST(Qwen3DecodeWindowed, MatchesSingleDecodeExactly) {
+  auto decode = [](int32_t begin, int32_t end) {
+    return Decode(begin, end - begin);
+  };
+  const auto actual = Qwen3DecodeWindowed(
+      57, /*window_frames=*/5, /*context_frames=*/3,
+      /*crossfade_samples=*/2 * kSamplesPerFrame, kSamplesPerFrame, decode);
+  const auto expected = Decode(0, 57);
+  ASSERT_EQ(actual.size(), expected.size());
+  for (size_t i = 0; i < expected.size(); ++i) {
+    // Blending equal values can be off by one ulp.
+    EXPECT_NEAR(actual[i], expected[i], 1e-5f) << "sample " << i;
+  }
+}
+
+TEST(Qwen3DecodeWindowed, NeverExceedsWindowPlusContext) {
+  int32_t max_frames = 0;
+  int32_t covered_until = 0;
+  auto decode = [&](int32_t begin, int32_t end) {
+    max_frames = std::max(max_frames, end - begin);
+    EXPECT_LE(begin, covered_until);  // no gap between windows
+    covered_until = end;
+    return Decode(begin, end - begin);
+  };
+  Qwen3DecodeWindowed(100, /*window_frames=*/25, /*context_frames=*/49,
+                      /*crossfade_samples=*/0, kSamplesPerFrame, decode);
+  EXPECT_EQ(max_frames, 74);
+  EXPECT_EQ(covered_until, 100);
+}
+
+TEST(Qwen3DecodeWindowed, EmptyInputDecodesNothing) {
+  int32_t calls = 0;
+  auto decode = [&](int32_t, int32_t) {
+    ++calls;
+    return std::vector<float>{};
+  };
+  EXPECT_TRUE(Qwen3DecodeWindowed(0, 25, 49, 8, kSamplesPerFrame, decode)
+                  .empty());
+  EXPECT_EQ(calls, 0);
+}
+
+TEST(Qwen3StreamWindow, FitsDecoderCapacity) {
+  // Defaults (chunk 25, context 50) overflow a 74-frame decoder: shrink the
+  // context, keep the chunk.
+  EXPECT_EQ(Qwen3FitStreamWindow(25, 50, 74), (Qwen3StreamWindow{25, 49}));
+  // Already fits: unchanged.
+  EXPECT_EQ(Qwen3FitStreamWindow(25, 10, 74), (Qwen3StreamWindow{25, 10}));
+  // Chunk alone too large: clamp it and drop the context.
+  EXPECT_EQ(Qwen3FitStreamWindow(100, 50, 74), (Qwen3StreamWindow{74, 0}));
+  // Unknown capacity (0): unchanged.
+  EXPECT_EQ(Qwen3FitStreamWindow(25, 50, 0), (Qwen3StreamWindow{25, 50}));
+}
+
 }  // namespace
 }  // namespace sherpa_onnx

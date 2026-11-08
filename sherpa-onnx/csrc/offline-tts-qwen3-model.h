@@ -136,6 +136,10 @@ class OfflineTtsQwen3Model {
   // Returns true if the streaming decoder model is loaded.
   bool HasTokenizer12hzDecodeStream() const;
 
+  // Most codec frames one stream-decoder call returns in full (its output
+  // buffer is fixed at trace time); 0 if unknown or not loaded.
+  int32_t Tokenizer12hzDecodeStreamMaxFrames() const;
+
   // Access model configuration
   const Qwen3TtsConfig &GetConfig() const;
 

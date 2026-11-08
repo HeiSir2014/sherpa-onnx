@@ -38,7 +38,7 @@ void PybindOfflineTtsModelConfig(py::module *m) {
                     const OfflineTtsZipvoiceModelConfig &,
                     const OfflineTtsKittenModelConfig &,
                     const OfflineTtsPocketModelConfig &,
-                    const OfflineTtsQwen3ModelConfig &, int32_t, bool,
+                    const OfflineTtsQwen3ModelConfig &,
                     const OfflineTtsSupertonicModelConfig &, int32_t, bool,
                     const std::string &>(),
            py::arg("vits") = OfflineTtsVitsModelConfig{},

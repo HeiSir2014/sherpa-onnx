@@ -14,6 +14,7 @@
 #include "sherpa-onnx/csrc/macros.h"
 #include "sherpa-onnx/csrc/onnx-utils.h"
 #include "sherpa-onnx/csrc/session.h"
+#include "sherpa-onnx/csrc/text-utils.h"
 
 namespace sherpa_onnx {
 
@@ -301,7 +302,8 @@ class OfflineTtsQwen3Model::Impl {
                    std::vector<const char *> &input_names_ptr,
                    std::vector<std::string> &output_names,
                    std::vector<const char *> &output_names_ptr) {
-    sess = std::make_unique<Ort::Session>(env_, model_path.c_str(), sess_opts_);
+    sess = std::make_unique<Ort::Session>(
+        env_, SHERPA_ONNX_TO_ORT_PATH(model_path), sess_opts_);
 
     GetInputNames(sess.get(), &input_names, &input_names_ptr);
     GetOutputNames(sess.get(), &output_names, &output_names_ptr);

@@ -69,7 +69,7 @@ class OfflineTtsQwen3Impl : public OfflineTtsImpl {
 
   OfflineTtsConfig config_;
   OfflineTtsQwen3Model model_;
-  mutable FunASRNanoTokenizer tokenizer_;
+  FunASRNanoTokenizer tokenizer_;
 };
 
 }  // namespace sherpa_onnx

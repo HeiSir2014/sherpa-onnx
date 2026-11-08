@@ -6,115 +6,32 @@ import 'package:ffi/ffi.dart';
 import './offline_stream.dart';
 import './sherpa_onnx_bindings.dart';
 import './utils.dart';
+import './spoken_language_identification_config.dart';
 
-class SpokenLanguageIdentificationWhisperConfig {
-  const SpokenLanguageIdentificationWhisperConfig({
-    this.encoder = '',
-    this.decoder = '',
-    this.tailPaddings = 0,
-  });
+export './spoken_language_identification_config.dart';
 
-  factory SpokenLanguageIdentificationWhisperConfig.fromJson(
-      Map<String, dynamic> json) {
-    return SpokenLanguageIdentificationWhisperConfig(
-      encoder: json['encoder'] as String? ?? '',
-      decoder: json['decoder'] as String? ?? '',
-      tailPaddings: json['tailPaddings'] as int? ?? 0,
-    );
-  }
-
-  @override
-  String toString() {
-    return 'SpokenLanguageIdentificationWhisperConfig(encoder: $encoder, decoder: $decoder, tailPaddings: $tailPaddings)';
-  }
-
-  Map<String, dynamic> toJson() => {
-        'encoder': encoder,
-        'decoder': decoder,
-        'tailPaddings': tailPaddings,
-      };
-
-  final String encoder;
-  final String decoder;
-  final int tailPaddings;
-}
-
-class SpokenLanguageIdentificationConfig {
-  const SpokenLanguageIdentificationConfig({
-    this.whisper = const SpokenLanguageIdentificationWhisperConfig(),
-    this.numThreads = 1,
-    this.debug = false,
-    this.provider = 'cpu',
-  });
-
-  factory SpokenLanguageIdentificationConfig.fromJson(
-      Map<String, dynamic> json) {
-    return SpokenLanguageIdentificationConfig(
-      whisper: json['whisper'] != null
-          ? SpokenLanguageIdentificationWhisperConfig.fromJson(
-              json['whisper'] as Map<String, dynamic>)
-          : const SpokenLanguageIdentificationWhisperConfig(),
-      numThreads: json['numThreads'] as int? ?? 1,
-      debug: json['debug'] as bool? ?? false,
-      provider: json['provider'] as String? ?? 'cpu',
-    );
-  }
-
-  @override
-  String toString() {
-    return 'SpokenLanguageIdentificationConfig(whisper: $whisper, numThreads: $numThreads, debug: $debug, provider: $provider)';
-  }
-
-  Map<String, dynamic> toJson() => {
-        'whisper': whisper.toJson(),
-        'numThreads': numThreads,
-        'debug': debug,
-        'provider': provider,
-      };
-
-  final SpokenLanguageIdentificationWhisperConfig whisper;
-  final int numThreads;
-  final bool debug;
-  final String provider;
-}
-
-class SpokenLanguageIdentificationResult {
-  const SpokenLanguageIdentificationResult({
-    required this.lang,
-  });
-
-  factory SpokenLanguageIdentificationResult.fromJson(
-      Map<String, dynamic> json) {
-    return SpokenLanguageIdentificationResult(
-      lang: json['lang'] as String? ?? '',
-    );
-  }
-
-  @override
-  String toString() {
-    return 'SpokenLanguageIdentificationResult(lang: $lang)';
-  }
-
-  Map<String, dynamic> toJson() => {
-        'lang': lang,
-      };
-
-  final String lang;
-}
-
+/// Spoken language identifier.
 class SpokenLanguageIdentification {
   SpokenLanguageIdentification.fromPtr(
       {required this.ptr, required this.config});
 
   SpokenLanguageIdentification._({required this.ptr, required this.config});
 
+  /// Release the native language identifier.
   void free() {
+    if (SherpaOnnxBindings.sherpaOnnxDestroySpokenLanguageIdentification ==
+        null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr) {
+      return;
+    }
     SherpaOnnxBindings.sherpaOnnxDestroySpokenLanguageIdentification?.call(ptr);
     ptr = nullptr;
   }
 
-  /// The user is responsible to call the SpokenLanguageIdentification.free()
-  /// method of the returned instance to avoid memory leak.
+  /// Create a language identifier from [config].
   factory SpokenLanguageIdentification(
       SpokenLanguageIdentificationConfig config) {
     final c = convertConfig(config);
@@ -163,17 +80,41 @@ class SpokenLanguageIdentification {
     malloc.free(c);
   }
 
-  /// The user has to invoke stream.free() on the returned instance
-  /// to avoid memory leak
+  /// Create an offline stream for one audio clip.
   OfflineStream createStream() {
+    if (SherpaOnnxBindings
+            .sherpaOnnxSpokenLanguageIdentificationCreateOfflineStream ==
+        null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr) {
+      throw Exception("Failed to create offline stream");
+    }
+
     final p = SherpaOnnxBindings
             .sherpaOnnxSpokenLanguageIdentificationCreateOfflineStream
             ?.call(ptr) ??
         nullptr;
+
+    if (p == nullptr) {
+      throw Exception("Failed to create offline stream");
+    }
+
     return OfflineStream(ptr: p);
   }
 
+  /// Compute the spoken language for [stream].
   SpokenLanguageIdentificationResult compute(OfflineStream stream) {
+    if (SherpaOnnxBindings.sherpaOnnxSpokenLanguageIdentificationCompute ==
+        null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr || stream.ptr == nullptr) {
+      return const SpokenLanguageIdentificationResult(lang: '');
+    }
+
     final result = SherpaOnnxBindings
             .sherpaOnnxSpokenLanguageIdentificationCompute
             ?.call(ptr, stream.ptr) ??

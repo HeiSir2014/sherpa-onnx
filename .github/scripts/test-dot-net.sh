@@ -1,13 +1,129 @@
 #!/usr/bin/env bash
 
 set -ex
-
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
 cd dotnet-examples/
 
-cd ./supertonic-tts
+cd ./version-test
+./run.sh
+ls -lh
+
+cd ../speech-enhancement-voxlock
+./run.sh
+ls -lh
+
+cd ../speech-enhancement-voxlock-with-voice-sample
+./run.sh
+ls -lh
+
+cd ../streaming-speech-enhancement-voxlock
+./run.sh
+ls -lh
+
+cd ../streaming-speech-enhancement-voxlock-with-voice-sample
+./run.sh
+ls -lh
+
+cd ../kitten-tts-lexicon
+./run-kitten-lexicon.sh
+ls -lh
+rm -rf kitten-nano-en-v0_1-fp16
+rm -f lexicon-en-us.txt
+
+cd ../kitten-tts-phonemize
+./run-kitten-phonemize.sh
+ls -lh
+rm -rf kitten-nano-en-v0_1-fp16
+
+cd ../kokoro-tts-lexicon
+./run-kokoro-lexicon.sh
+ls -lh
+rm -f lexicon-en-us.txt
+
+cd ../kokoro-tts-phonemize
+./run-kokoro-phonemize.sh
+ls -lh
+
+cd ../offline-tts-lexicon
+./run-matcha-zh-lexicon.sh
+ls -lh *.wav
+./run-matcha-en-lexicon.sh
+ls -lh *.wav
+./run-aishell3-lexicon.sh
+ls -lh *.wav
+./run-piper-lexicon.sh
+ls -lh *.wav
+./run-hf-fanchen-lexicon.sh
+ls -lh *.wav
+ls -lh
+rm -f lexicon-en-us.txt
+
+cd ../offline-tts-phonemize
+./run-piper-phonemize.sh
+ls -lh *.wav
+./run-matcha-en-phonemize.sh
+ls -lh *.wav
+ls -lh
+
+cd ../pocket-tts-zero-shot
+./run.sh
+ls -lh
+rm -rf sherpa-onnx-pocket-*
+
+cd ../supertonic-tts
 ./run.sh
 ls -lh
 rm -rf sherpa-onnx-supertonic-*
+
+cd ../zipvoice-tts-lexicon
+./run-lexicon.sh
+ls -lh
+rm -rf sherpa-onnx-zipvoice-*
+rm -f vocos_24khz.onnx lexicon-en-us.txt
+
+pushd ../..
+
+mkdir tts
+
+cp -v dotnet-examples/kokoro-tts-lexicon/*.wav ./tts
+cp -v dotnet-examples/kokoro-tts-phonemize/*.wav ./tts
+cp -v dotnet-examples/kitten-tts-lexicon/*.wav ./tts
+cp -v dotnet-examples/kitten-tts-phonemize/*.wav ./tts
+cp -v dotnet-examples/offline-tts-lexicon/*.wav ./tts
+cp -v dotnet-examples/offline-tts-phonemize/*.wav ./tts
+cp -v dotnet-examples/supertonic-tts/*.wav ./tts
+cp -v dotnet-examples/zipvoice-tts-lexicon/*.wav ./tts
+popd
+
+cd ../non-streaming-cohere-transcribe-decode-files
+./run.sh
+ls -lh
+rm -rf sherpa-onnx-cohere-transcribe-*
+
+cd ../vad-non-streaming-qwen3-asr
+./run-ten-vad.sh
+rm -fv *.onnx
+
+./run.sh
+rm -fv *.onnx
+
+cd ../non-streaming-qwen3-asr-decode-files
+./run.sh
+ls -lh
+rm -rf sherpa-onnx-qwen3-*
+
+cd ..
+
+cd ./source-separation-spleeter
+./run.sh
+ls -lh
+rm -rf sherpa-onnx-spleeter-*
+
+cd ../source-separation-uvr
+./run.sh
+ls -lh
+rm -f UVR-MDX-NET-Voc_FT.onnx
 
 cd ../non-streaming-moonshine-v2-decode-files
 ./run.sh
@@ -69,11 +185,6 @@ rm -rf sherpa-onnx-*
 ./run-tdnn-yesno.sh
 rm -rf sherpa-onnx-*
 
-cd ../pocket-tts-zero-shot
-./run.sh
-ls -lh
-rm -rf sherpa-onnx-pocket-*
-
 cd ../vad-non-streaming-funasr-nano
 ./run-ten-vad.sh
 rm -fv *.onnx
@@ -86,19 +197,11 @@ cd ../non-streaming-funasr-nano-decode-files
 ls -lh
 rm -rf sherpa-onnx-funasr-*
 
-cd ../version-test
-./run.sh
-ls -lh
 
 cd ../offline-audio-tagging
 ./run.sh
 ls -lh
 rm -rf sherpa-onnx-*
-
-cd ../kitten-tts
-./run-kitten.sh
-ls -lh
-rm -rf kitten-nano-en-v0_1-fp16
 
 cd ../vad-non-streaming-asr-paraformer
 ./run-ten-vad.sh
@@ -113,37 +216,21 @@ cd ../non-streaming-canary-decode-files
 ls -lh
 rm -rf sherpa-onnx-nemo-*
 
-
-
 cd ../speech-enhancement-gtcrn
 ./run.sh
 ls -lh
 
-cd ../kokoro-tts
-./run-kokoro.sh
+cd ../speech-enhancement-dpdfnet
+./run.sh
 ls -lh
 
-cd ../offline-tts
-./run-matcha-zh.sh
-ls -lh *.wav
-./run-matcha-en.sh
-ls -lh *.wav
-./run-aishell3.sh
-ls -lh *.wav
-./run-piper.sh
-ls -lh *.wav
-./run-hf-fanchen.sh
-ls -lh *.wav
+cd ../streaming-speech-enhancement-gtcrn
+./run.sh
 ls -lh
 
-pushd ../..
-
-mkdir tts
-
-cp -v dotnet-examples/kokoro-tts/*.wav ./tts
-cp -v dotnet-examples/offline-tts/*.wav ./tts
-cp -v dotnet-examples/supertonic-tts/*.wav ./tts
-popd
+cd ../streaming-speech-enhancement-dpdfnet
+./run.sh
+ls -lh
 
 cd ../offline-speaker-diarization
 ./run.sh
@@ -174,10 +261,18 @@ cd ../offline-punctuation
 ./run.sh
 rm -rf sherpa-onnx-*
 
+cd ../online-punctuation
+./run.sh
+rm -rf sherpa-onnx-online-punct-en-2024-08-06
+
 cd ../speaker-identification
 ./run.sh
 
 cd ../streaming-hlg-decoding/
+./run.sh
+rm -rf sherpa-onnx-*
+
+cd ../offline-zipformer-ctc-hlg/
 ./run.sh
 rm -rf sherpa-onnx-*
 

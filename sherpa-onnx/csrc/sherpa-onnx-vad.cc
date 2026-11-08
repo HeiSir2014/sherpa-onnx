@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "sherpa-onnx/csrc/voice-activity-detector.h"
+#include "sherpa-onnx/csrc/macros.h"
 #include "sherpa-onnx/csrc/wave-reader.h"
 #include "sherpa-onnx/csrc/wave-writer.h"
 
@@ -44,7 +45,7 @@ input.wav should be 16kHz.
         stderr,
         "Please provide only 2 argument2: the input wav and the output wav\n");
     po.PrintUsage();
-    exit(EXIT_FAILURE);
+    SHERPA_ONNX_EXIT(EXIT_FAILURE);
   }
 
   fprintf(stderr, "%s\n", config.ToString().c_str());
@@ -91,9 +92,9 @@ input.wav should be 16kHz.
 
     while (!vad->Empty()) {
       const auto &segment = vad->Front();
-      float start_time = segment.start / static_cast<float>(sampling_rate);
-      float end_time = start_time + segment.samples.size() /
-                                        static_cast<float>(sampling_rate);
+      double start_time = segment.start / static_cast<double>(sampling_rate);
+      double end_time = start_time + segment.samples.size() /
+                                         static_cast<double>(sampling_rate);
 
       fprintf(stderr, "%.3f -- %.3f\n", start_time, end_time);
       samples_without_silence.insert(samples_without_silence.end(),

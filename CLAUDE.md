@@ -39,11 +39,13 @@ Platform-specific build scripts are in the root directory:
 - `build-*-linux-*.sh` - Cross-compilation for ARM/RISC-V
 
 ### Running Tests
+Tests are GoogleTest, built only with `-DSHERPA_ONNX_ENABLE_TESTS=ON`. Each `*-test.cc` becomes its own executable named after the file, registered with ctest. Add new test files to `sherpa_onnx_test_srcs` in `sherpa-onnx/csrc/CMakeLists.txt`.
 ```bash
-# After building with -DSHERPA_ONNX_ENABLE_TESTS=ON
-cd build && ctest
+cd build && ctest --output-on-failure                            # all tests
+cd build && ctest -R circular-buffer-test --output-on-failure    # single test
+./bin/circular-buffer-test --gtest_filter='Suite.Case'           # single case
 
-# Python tests
+# Python tests (pytest style; some need downloaded models)
 cd sherpa-onnx/python/tests
 pytest
 ```
@@ -61,10 +63,12 @@ sherpa-onnx/csrc/          # C++ core implementation
 ```
 
 ### API Layers
-The codebase follows a layered API design:
-1. **C++ Core** (`sherpa-onnx/csrc/`) - Main implementation
-2. **C API** (`sherpa-onnx/c-api/`) - C bindings for cross-language support
-3. **Language Bindings** - Python, Java, etc. wrap the C API
+Language bindings are thin layers over the C++ core, and a new config field/feature usually has to be mirrored in each: `sherpa-onnx/c-api` (C API + `cxx-api`), `sherpa-onnx/python/csrc` (pybind11) and `python/sherpa_onnx`, `sherpa-onnx/jni` + `java-api` + `kotlin-api`, `rust`, `pascal-api`, and the wrappers in `swift-api-examples`, `dotnet-examples`, `go-api-examples`, `nodejs-addon-examples`, `flutter`, `dart-api-examples`, `harmony-os`, `wasm`. Each language has a `*-examples` dir that CI tests.
+
+Many bindings (Go, C#, Dart, Swift, Pascal, JS) mirror C API struct layouts. When adding fields to a C API struct in this fork, append them at the end so upstream bindings stay layout-compatible.
+
+### Model-Dispatch Pattern
+Public facades (`OnlineRecognizer`, `OfflineRecognizer`, `OfflineTts`, ...) hold a `*Impl` created by `*Impl::Create(config)` in `*-impl.cc`, which inspects the config / model metadata to pick a concrete implementation (`offline-recognizer-<model>-impl.h`, `online-recognizer-{transducer,ctc,paraformer}-impl.h`). Each model family has its own `*-model.{h,cc}`, `*-model-config.{h,cc}` and `*-model-meta-data.h`. Adding a model = new model + config + impl + registration in the dispatcher + `sources` in `csrc/CMakeLists.txt` + `Config` plumbing in every binding.
 
 ### Model Types
 - **Transducer models**: Zipformer, Conformer (streaming and non-streaming)
@@ -73,7 +77,7 @@ The codebase follows a layered API design:
 - **TTS**: Piper, Matcha, Kokoro, VITS, MeloTTS
 
 ### Configuration Pattern
-Models are configured via config structs rather than hardcoded values. See `*-model-config.h` files for model configuration options.
+Models are configured via config structs rather than hardcoded values. Configs are structs with `Register(ParseOptions*)`, `Validate()`, `ToString()`; CLI flags come from `Register`, and bindings expose the same fields. See `*-model-config.h` files.
 
 ## Code Style
 
@@ -81,6 +85,8 @@ Models are configured via config structs rather than hardcoded values. See `*-mo
 - Google C++ style (configured in `.clang-format`)
 - Pointer alignment: Right (`int *p`)
 - Static analysis: clang-tidy with warnings as errors
+- Lint: cpplint 2.0.2 via `./scripts/check_style_cpplint.sh` (no arg = last commit, `1` = uncommitted changes, `2` = whole repo). Config in `CPPLINT.cfg`; CI is `.github/workflows/style_check.yaml`.
+- Headers use `SHERPA_ONNX_CSRC_<NAME>_H_` guards and a `// sherpa-onnx/csrc/<file>` + copyright header comment.
 
 ### Python
 - flake8 with max line length 120
@@ -88,7 +94,8 @@ Models are configured via config structs rather than hardcoded values. See `*-mo
 
 ## Key Directories
 
-- `scripts/` - Model conversion scripts (50+ model types)
+- `scripts/` - Model export/conversion scripts (not part of the build)
+- `cmake/` - Per-dependency fetch scripts (onnxruntime, kaldi-native-fbank, etc.), downloaded at configure time
 - `*-api-examples/` - Usage examples for each language
 - `android/` - Android applications and libraries
 - `flutter/` - Flutter packages

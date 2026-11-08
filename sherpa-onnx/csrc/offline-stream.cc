@@ -7,22 +7,22 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <cstdlib>
 #include <iomanip>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
-#include <cstdlib>  // for srand
-#include <mutex>    // for std::mutex
-
-#include "Eigen/Core"
 #include "kaldi-native-fbank/csrc/online-feature.h"
 #include "sherpa-onnx/csrc/macros.h"
 #include "sherpa-onnx/csrc/math.h"
 #include "sherpa-onnx/csrc/offline-recognizer.h"
 #include "sherpa-onnx/csrc/resample.h"
+#include "sherpa-onnx/csrc/text-utils.h"
 
 namespace sherpa_onnx {
 
@@ -67,6 +67,15 @@ class OfflineStream::Impl {
 
       opts_.mel_opts.is_librosa = config.is_librosa;
 
+      // NeMo mel preprocessing uses an additive log-zero guard,
+      // log(x + FLT_EPSILON / 2) (2**-24), while knf defaults to the hard
+      // floor log(max(x, FLT_EPSILON)). Select the additive guard with
+      // NeMo's value so the extracted features match NeMo directly.
+      if (!config_.nemo_normalize_type.empty()) {
+        opts_.use_log_floor = false;
+        opts_.eps = std::numeric_limits<float>::epsilon() / 2;
+      }
+
       fbank_ = std::make_unique<knf::OnlineFbank>(opts_);
     }
   }
@@ -82,6 +91,18 @@ class OfflineStream::Impl {
 
     whisper_fbank_ = std::make_unique<knf::OnlineWhisperFbank>(whisper_opts);
     config_.sampling_rate = opts_.frame_opts.samp_freq;
+
+    if (tag.align_to_stft_center) {
+      whisper_align_to_stft_center_ = true;
+      // The whisper feature computer uses a 10 ms frame shift; prepending
+      // half a shift of silence moves each kaldi-placed window midpoint
+      // from i * shift + shift / 2 back to i * shift, the centered-STFT
+      // convention. GetFrames() drops the one extra trailing frame this
+      // produces, so the frame count matches floor(num_samples / shift)
+      // exactly as the reference extractor computes it.
+      whisper_center_padding_ =
+          static_cast<int32_t>(opts_.frame_opts.samp_freq * 0.01f) / 2;
+    }
   }
 
   explicit Impl(CEDTag /*tag*/) : is_ced_(true) {
@@ -164,9 +185,7 @@ class OfflineStream::Impl {
                               samples.size());
         mfcc_->InputFinished();
       } else {
-        whisper_fbank_->AcceptWaveform(config_.sampling_rate, samples.data(),
-                                       samples.size());
-        whisper_fbank_->InputFinished();
+        FeedWhisper(samples.data(), samples.size());
       }
 
       return;
@@ -181,9 +200,32 @@ class OfflineStream::Impl {
       mfcc_->AcceptWaveform(sampling_rate, waveform, n);
       mfcc_->InputFinished();
     } else {
-      whisper_fbank_->AcceptWaveform(sampling_rate, waveform, n);
-      whisper_fbank_->InputFinished();
+      FeedWhisper(waveform, n);
     }
+  }
+
+  void FeedWhisper(const float *samples, int32_t n) {
+    if (whisper_center_padding_ > 0 && n > 0) {
+      // Reflect-pad the lead-in the way torch.stft(center=True,
+      // pad_mode="reflect") does: sample -i mirrors sample i (the
+      // boundary sample itself is not repeated). A first chunk shorter
+      // than the padding is zero-padded instead.
+      int32_t pad = whisper_center_padding_;
+      std::vector<float> padded(static_cast<size_t>(pad) + n);
+      if (n > pad) {
+        for (int32_t i = 0; i != pad; ++i) {
+          padded[i] = samples[pad - i];
+        }
+      }
+      std::copy(samples, samples + n, padded.begin() + pad);
+      whisper_fbank_->AcceptWaveform(config_.sampling_rate, padded.data(),
+                                     padded.size());
+      whisper_center_padding_ = 0;  // pad only before the first chunk
+    } else {
+      whisper_fbank_->AcceptWaveform(config_.sampling_rate, samples, n);
+    }
+    whisper_num_samples_ += n;
+    whisper_fbank_->InputFinished();
   }
 
   int32_t FeatureDim() const {
@@ -203,6 +245,19 @@ class OfflineStream::Impl {
                 : mfcc_ ? mfcc_->NumFramesReady()
                         : whisper_fbank_->NumFramesReady();
     assert(n > 0 && "Please first call AcceptWaveform()");
+
+    if (whisper_align_to_stft_center_) {
+      // The half-shift lead-in padding yields extra trailing frames
+      // relative to the centered-STFT frame count of
+      // floor(num_samples / frame_shift); keep exactly that many.
+      int32_t frame_shift =
+          static_cast<int32_t>(opts_.frame_opts.samp_freq * 0.01f);
+      int32_t target = static_cast<int32_t>(whisper_num_samples_ / frame_shift);
+      n = std::min(n, target);
+      if (n <= 0) {
+        return {};
+      }
+    }
 
     int32_t feature_dim = FeatureDim();
 
@@ -232,6 +287,39 @@ class OfflineStream::Impl {
   const OfflineRecognitionResult &GetResult() const { return r_; }
 
   const ContextGraphPtr &GetContextGraph() const { return context_graph_; }
+
+  void SetOption(const std::string &key, const std::string &value) {
+    options_[key] = value;
+  }
+
+  bool HasOption(const std::string &key) const {
+    return options_.count(key) != 0;
+  }
+
+  const std::string &GetOption(const std::string &key) const {
+    auto it = options_.find(key);
+    if (it != options_.end()) {
+      return it->second;
+    }
+    static const std::string kEmpty;
+    return kEmpty;
+  }
+
+  int32_t GetOptionInt(const std::string &key, int32_t default_value) const {
+    auto it = options_.find(key);
+    if (it != options_.end()) {
+      return ToIntOrDefault(it->second, default_value);
+    }
+    return default_value;
+  }
+
+  float GetOptionFloat(const std::string &key, float default_value) const {
+    auto it = options_.find(key);
+    if (it != options_.end()) {
+      return ToFloatOrDefault(it->second, default_value);
+    }
+    return default_value;
+  }
 
  private:
   // see
@@ -270,28 +358,10 @@ class OfflineStream::Impl {
       SHERPA_ONNX_LOGE(
           "Only normalize_type=per_feature is implemented. Given: %s",
           config_.nemo_normalize_type.c_str());
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
 
     NemoNormalizePerFeature(p, num_frames, feature_dim);
-  }
-
-  static void NemoNormalizePerFeature(float *p, int32_t num_frames,
-                                      int32_t feature_dim) {
-    using RowMajorMat =
-        Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
-
-    Eigen::Map<RowMajorMat> x(p, num_frames, feature_dim);
-
-    Eigen::RowVectorXf mean = x.colwise().mean();
-    Eigen::RowVectorXf var =
-        (x.array().square().colwise().mean() - mean.array().square())
-            .max(0.0f);  // avoid negative due to FP error
-
-    Eigen::RowVectorXf inv_std = (var.array().sqrt() + 1e-5f).inverse();
-
-    x.array() =
-        (x.array().rowwise() - mean.array()).rowwise() * inv_std.array();
   }
 
  private:
@@ -306,9 +376,14 @@ class OfflineStream::Impl {
   bool is_ced_ = false;
   bool is_moonshine_ = false;
   bool is_omnilingual_asr_ = false;
+  bool whisper_align_to_stft_center_ = false;
+  int32_t whisper_center_padding_ = 0;
+  int64_t whisper_num_samples_ = 0;
 
   // used only when (is_moonshine_ || is_omnilingual_asr_) == true
   std::vector<float> samples_;
+
+  std::unordered_map<std::string, std::string> options_;
 };
 
 OfflineStream::OfflineStream(const FeatureExtractorConfig &config /*= {}*/,
@@ -350,25 +425,49 @@ const ContextGraphPtr &OfflineStream::GetContextGraph() const {
 const OfflineRecognitionResult &OfflineStream::GetResult() const {
   return impl_->GetResult();
 }
+
+void OfflineStream::SetOption(const std::string &key,
+                              const std::string &value) {
+  impl_->SetOption(key, value);
+}
+
+bool OfflineStream::HasOption(const std::string &key) const {
+  return impl_->HasOption(key);
+}
+
+const std::string &OfflineStream::GetOption(const std::string &key) const {
+  return impl_->GetOption(key);
+}
+
+int32_t OfflineStream::GetOptionInt(const std::string &key,
+                                    int32_t default_value) const {
+  return impl_->GetOptionInt(key, default_value);
+}
+
+float OfflineStream::GetOptionFloat(const std::string &key,
+                                    float default_value) const {
+  return impl_->GetOptionFloat(key, default_value);
+}
+
 std::string OfflineRecognitionResult::AsJsonString() const {
   std::ostringstream os;
   os << "{";
 
   os << "\"lang\""
      << ": ";
-  os << std::quoted(lang) << ", ";
+  os << QuoteJsonString(lang) << ", ";
 
   os << "\"emotion\""
      << ": ";
-  os << std::quoted(emotion) << ", ";
+  os << QuoteJsonString(emotion) << ", ";
 
   os << "\"event\""
      << ": ";
-  os << std::quoted(event) << ", ";
+  os << QuoteJsonString(event) << ", ";
 
   os << "\"text\""
      << ": ";
-  os << std::quoted(text) << ", ";
+  os << QuoteJsonString(text) << ", ";
 
   os << "\""
      << "timestamps"
@@ -412,7 +511,7 @@ std::string OfflineRecognitionResult::AsJsonString() const {
          << "\"";
       os.flags(oldFlags);
     } else {
-      os << sep << std::quoted(t);
+      os << sep << QuoteJsonString(t);
     }
     sep = ", ";
   }
@@ -466,7 +565,7 @@ std::string OfflineRecognitionResult::AsJsonString() const {
     os << "\"segment_texts\": [";
     sep = "";
     for (const auto &t : segment_texts) {
-      os << sep << std::quoted(t);
+      os << sep << QuoteJsonString(t);
       sep = ", ";
     }
     os << "]";

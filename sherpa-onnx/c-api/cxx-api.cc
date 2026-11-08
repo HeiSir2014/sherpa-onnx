@@ -14,6 +14,21 @@
 
 namespace sherpa_onnx::cxx {
 
+static void FillSpeechDenoiserModelConfig(
+    const OfflineSpeechDenoiserModelConfig &src,
+    SherpaOnnxOfflineSpeechDenoiserModelConfig *dst) {
+  memset(dst, 0, sizeof(*dst));
+  dst->gtcrn.model = src.gtcrn.model.c_str();
+  dst->dpdfnet.model = src.dpdfnet.model.c_str();
+  dst->dpdfnet.attenuation_limit_db = src.dpdfnet.attenuation_limit_db;
+  dst->voxlock.enroll_model = src.voxlock.enroll_model.c_str();
+  dst->voxlock.chunk_model = src.voxlock.chunk_model.c_str();
+  dst->voxlock.voice_sample = src.voxlock.voice_sample.c_str();
+  dst->num_threads = src.num_threads;
+  dst->provider = src.provider.c_str();
+  dst->debug = src.debug;
+}
+
 Wave ReadWave(const std::string &filename) {
   auto p = SherpaOnnxReadWave(filename.c_str());
 
@@ -49,6 +64,18 @@ void OnlineStream::AcceptWaveform(int32_t sample_rate, const float *samples,
 
 void OnlineStream::InputFinished() const {
   SherpaOnnxOnlineStreamInputFinished(p_);
+}
+
+void OnlineStream::SetOption(const char *key, const char *value) const {
+  SherpaOnnxOnlineStreamSetOption(p_, key, value);
+}
+
+const char *OnlineStream::GetOption(const char *key) const {
+  return SherpaOnnxOnlineStreamGetOption(p_, key);
+}
+
+int32_t OnlineStream::HasOption(const char *key) const {
+  return SherpaOnnxOnlineStreamHasOption(p_, key);
 }
 
 OnlineRecognizer OnlineRecognizer::Create(
@@ -166,6 +193,10 @@ OnlineRecognizerResult OnlineRecognizer::GetResult(
   auto r = SherpaOnnxGetOnlineStreamResult(p_, s->Get());
 
   OnlineRecognizerResult ans;
+  if (!r) {
+    return ans;
+  }
+
   ans.text = r->text;
 
   ans.tokens.resize(r->count);
@@ -198,6 +229,18 @@ void OfflineStream::Destroy(const SherpaOnnxOfflineStream *p) const {
 void OfflineStream::AcceptWaveform(int32_t sample_rate, const float *samples,
                                    int32_t n) const {
   SherpaOnnxAcceptWaveformOffline(p_, sample_rate, samples, n);
+}
+
+void OfflineStream::SetOption(const char *key, const char *value) const {
+  SherpaOnnxOfflineStreamSetOption(p_, key, value);
+}
+
+const char *OfflineStream::GetOption(const char *key) const {
+  return SherpaOnnxOfflineStreamGetOption(p_, key);
+}
+
+int32_t OfflineStream::HasOption(const char *key) const {
+  return SherpaOnnxOfflineStreamHasOption(p_, key);
 }
 
 static SherpaOnnxOfflineRecognizerConfig Convert(
@@ -275,6 +318,17 @@ static SherpaOnnxOfflineRecognizerConfig Convert(
   c.model_config.canary.tgt_lang = config.model_config.canary.tgt_lang.c_str();
   c.model_config.canary.use_pnc = config.model_config.canary.use_pnc;
 
+  c.model_config.cohere_transcribe.encoder =
+      config.model_config.cohere_transcribe.encoder.c_str();
+  c.model_config.cohere_transcribe.decoder =
+      config.model_config.cohere_transcribe.decoder.c_str();
+  c.model_config.cohere_transcribe.language =
+      config.model_config.cohere_transcribe.language.c_str();
+  c.model_config.cohere_transcribe.use_punct =
+      config.model_config.cohere_transcribe.use_punct;
+  c.model_config.cohere_transcribe.use_itn =
+      config.model_config.cohere_transcribe.use_itn;
+
   c.model_config.wenet_ctc.model = config.model_config.wenet_ctc.model.c_str();
 
   c.model_config.omnilingual.model =
@@ -302,6 +356,26 @@ static SherpaOnnxOfflineRecognizerConfig Convert(
   c.model_config.funasr_nano.itn = config.model_config.funasr_nano.itn ? 1 : 0;
   c.model_config.funasr_nano.hotwords =
       config.model_config.funasr_nano.hotwords.c_str();
+
+  c.model_config.qwen3_asr.conv_frontend =
+      config.model_config.qwen3_asr.conv_frontend.c_str();
+  c.model_config.qwen3_asr.encoder =
+      config.model_config.qwen3_asr.encoder.c_str();
+  c.model_config.qwen3_asr.decoder =
+      config.model_config.qwen3_asr.decoder.c_str();
+  c.model_config.qwen3_asr.tokenizer =
+      config.model_config.qwen3_asr.tokenizer.c_str();
+  c.model_config.qwen3_asr.hotwords =
+      config.model_config.qwen3_asr.hotwords.c_str();
+  c.model_config.qwen3_asr.max_total_len =
+      config.model_config.qwen3_asr.max_total_len;
+  c.model_config.qwen3_asr.max_new_tokens =
+      config.model_config.qwen3_asr.max_new_tokens;
+  c.model_config.qwen3_asr.temperature =
+      config.model_config.qwen3_asr.temperature;
+  c.model_config.qwen3_asr.top_p = config.model_config.qwen3_asr.top_p;
+  c.model_config.qwen3_asr.seed = config.model_config.qwen3_asr.seed;
+
   c.model_config.medasr.model = config.model_config.medasr.model.c_str();
 
   c.model_config.fire_red_asr_ctc.model =
@@ -322,6 +396,10 @@ static SherpaOnnxOfflineRecognizerConfig Convert(
 
   c.hr.lexicon = config.hr.lexicon.c_str();
   c.hr.rule_fsts = config.hr.rule_fsts.c_str();
+
+  c.ctc_fst_decoder_config.graph = config.ctc_fst_decoder_config.graph.c_str();
+  c.ctc_fst_decoder_config.max_active =
+      config.ctc_fst_decoder_config.max_active;
 
   return c;
 }
@@ -447,6 +525,7 @@ OfflineTts OfflineTts::Create(const OfflineTtsConfig &config) {
   c.model.kitten.tokens = config.model.kitten.tokens.c_str();
   c.model.kitten.data_dir = config.model.kitten.data_dir.c_str();
   c.model.kitten.length_scale = config.model.kitten.length_scale;
+  c.model.kitten.lexicon = config.model.kitten.lexicon.c_str();
 
   c.model.zipvoice.tokens = config.model.zipvoice.tokens.c_str();
   c.model.zipvoice.encoder = config.model.zipvoice.encoder.c_str();
@@ -529,17 +608,25 @@ int32_t OfflineTts::NumSpeakers() const {
   return SherpaOnnxOfflineTtsNumSpeakers(p_);
 }
 
+std::string OfflineTts::Lang() const {
+  const char *s = SherpaOnnxOfflineTtsLang(p_);
+  std::string ans = s;
+  SherpaOnnxDestroyOfflineTtsLang(s);
+  return ans;
+}
+
 GeneratedAudio OfflineTts::Generate(const std::string &text,
                                     int32_t sid /*= 0*/, float speed /*= 1.0*/,
                                     OfflineTtsCallback callback /*= nullptr*/,
                                     void *arg /*= nullptr*/) const {
-  const SherpaOnnxGeneratedAudio *audio;
-  if (!callback) {
-    audio = SherpaOnnxOfflineTtsGenerate(p_, text.c_str(), sid, speed);
-  } else {
-    audio = SherpaOnnxOfflineTtsGenerateWithProgressCallbackWithArg(
-        p_, text.c_str(), sid, speed, callback, arg);
-  }
+  SherpaOnnxGenerationConfig c;
+  memset(&c, 0, sizeof(c));
+  c.sid = sid;
+  c.speed = speed;
+
+  const SherpaOnnxGeneratedAudio *audio =
+      SherpaOnnxOfflineTtsGenerateWithConfig(p_, text.c_str(), &c, callback,
+                                             arg);
 
   GeneratedAudio ans;
 
@@ -573,6 +660,41 @@ GeneratedAudio OfflineTts::Generate(const std::string &text,
   nlohmann::json j = config.extra;
   std::string s = j.dump();
   c.extra = s.c_str();
+
+  // Flatten phoneme_codepoints; the C API takes a flat array + per-sentence
+  // lengths.
+  std::vector<int32_t> flat_codepoints;
+  std::vector<int32_t> codepoint_lens;
+  codepoint_lens.reserve(config.phoneme_codepoints.size());
+  for (const auto &sentence : config.phoneme_codepoints) {
+    flat_codepoints.insert(flat_codepoints.end(), sentence.begin(),
+                           sentence.end());
+    codepoint_lens.push_back(static_cast<int32_t>(sentence.size()));
+  }
+
+  if (!codepoint_lens.empty()) {
+    c.phoneme_codepoints = flat_codepoints.data();
+    c.phoneme_codepoints_lens = codepoint_lens.data();
+    c.phoneme_codepoints_num_sentences =
+        static_cast<int32_t>(codepoint_lens.size());
+  }
+
+  // Flatten tokens; the C API takes a flat array + per-sentence lengths.
+  std::vector<const char *> flat_tokens;
+  std::vector<int32_t> token_lens;
+  token_lens.reserve(config.tokens.size());
+  for (const auto &sentence : config.tokens) {
+    token_lens.push_back(static_cast<int32_t>(sentence.size()));
+    for (const auto &tok : sentence) {
+      flat_tokens.push_back(tok.c_str());
+    }
+  }
+
+  if (!token_lens.empty()) {
+    c.tokens = flat_tokens.data();
+    c.tokens_lens = token_lens.data();
+    c.tokens_num_sentences = static_cast<int32_t>(token_lens.size());
+  }
 
   const SherpaOnnxGeneratedAudio *audio =
       SherpaOnnxOfflineTtsGenerateWithConfig(p_, text.c_str(), &c, callback,
@@ -701,6 +823,8 @@ KeywordResult KeywordSpotter::GetResult(const OnlineStream *s) const {
   auto r = SherpaOnnxGetKeywordResult(p_, s->Get());
 
   KeywordResult ans;
+  if (!r) return ans;
+
   ans.keyword = r->keyword;
 
   ans.tokens.resize(r->count);
@@ -732,13 +856,7 @@ void KeywordSpotter::Reset(const OnlineStream *s) const {
 OfflineSpeechDenoiser OfflineSpeechDenoiser::Create(
     const OfflineSpeechDenoiserConfig &config) {
   struct SherpaOnnxOfflineSpeechDenoiserConfig c;
-  memset(&c, 0, sizeof(c));
-
-  c.model.gtcrn.model = config.model.gtcrn.model.c_str();
-
-  c.model.num_threads = config.model.num_threads;
-  c.model.provider = config.model.provider.c_str();
-  c.model.debug = config.model.debug;
+  FillSpeechDenoiserModelConfig(config.model, &c.model);
 
   auto p = SherpaOnnxCreateOfflineSpeechDenoiser(&c);
 
@@ -757,6 +875,9 @@ OfflineSpeechDenoiser::OfflineSpeechDenoiser(
 DenoisedAudio OfflineSpeechDenoiser::Run(const float *samples, int32_t n,
                                          int32_t sample_rate) const {
   auto audio = SherpaOnnxOfflineSpeechDenoiserRun(p_, samples, n, sample_rate);
+  if (audio == nullptr) {
+    return {};
+  }
 
   DenoisedAudio ans;
   ans.samples = {audio->samples, audio->samples + audio->n};
@@ -768,6 +889,81 @@ DenoisedAudio OfflineSpeechDenoiser::Run(const float *samples, int32_t n,
 
 int32_t OfflineSpeechDenoiser::GetSampleRate() const {
   return SherpaOnnxOfflineSpeechDenoiserGetSampleRate(p_);
+}
+
+bool OfflineSpeechDenoiser::SetVoiceSample(const float *samples, int32_t n,
+                                           int32_t sample_rate) const {
+  if (!p_) {
+    return false;
+  }
+  return SherpaOnnxOfflineSpeechDenoiserSetVoiceSample(p_, samples, n,
+                                                       sample_rate) == 0;
+}
+
+OnlineSpeechDenoiser OnlineSpeechDenoiser::Create(
+    const OnlineSpeechDenoiserConfig &config) {
+  struct SherpaOnnxOnlineSpeechDenoiserConfig c;
+  FillSpeechDenoiserModelConfig(config.model, &c.model);
+
+  auto p = SherpaOnnxCreateOnlineSpeechDenoiser(&c);
+  return OnlineSpeechDenoiser(p);
+}
+
+void OnlineSpeechDenoiser::Destroy(
+    const SherpaOnnxOnlineSpeechDenoiser *p) const {
+  SherpaOnnxDestroyOnlineSpeechDenoiser(p);
+}
+
+OnlineSpeechDenoiser::OnlineSpeechDenoiser(
+    const SherpaOnnxOnlineSpeechDenoiser *p)
+    : MoveOnly<OnlineSpeechDenoiser, SherpaOnnxOnlineSpeechDenoiser>(p) {}
+
+DenoisedAudio OnlineSpeechDenoiser::Run(const float *samples, int32_t n,
+                                        int32_t sample_rate) const {
+  auto audio = SherpaOnnxOnlineSpeechDenoiserRun(p_, samples, n, sample_rate);
+  if (audio == nullptr) {
+    return {};
+  }
+
+  DenoisedAudio ans;
+  ans.samples = {audio->samples, audio->samples + audio->n};
+  ans.sample_rate = audio->sample_rate;
+  SherpaOnnxDestroyDenoisedAudio(audio);
+  return ans;
+}
+
+DenoisedAudio OnlineSpeechDenoiser::Flush() const {
+  auto audio = SherpaOnnxOnlineSpeechDenoiserFlush(p_);
+  if (audio == nullptr) {
+    return {};
+  }
+
+  DenoisedAudio ans;
+  ans.samples = {audio->samples, audio->samples + audio->n};
+  ans.sample_rate = audio->sample_rate;
+  SherpaOnnxDestroyDenoisedAudio(audio);
+  return ans;
+}
+
+void OnlineSpeechDenoiser::Reset() const {
+  SherpaOnnxOnlineSpeechDenoiserReset(p_);
+}
+
+bool OnlineSpeechDenoiser::SetVoiceSample(const float *samples, int32_t n,
+                                          int32_t sample_rate) const {
+  if (!p_) {
+    return false;
+  }
+  return SherpaOnnxOnlineSpeechDenoiserSetVoiceSample(p_, samples, n,
+                                                      sample_rate) == 0;
+}
+
+int32_t OnlineSpeechDenoiser::GetSampleRate() const {
+  return SherpaOnnxOnlineSpeechDenoiserGetSampleRate(p_);
+}
+
+int32_t OnlineSpeechDenoiser::GetFrameShiftInSamples() const {
+  return SherpaOnnxOnlineSpeechDenoiserGetFrameShiftInSamples(p_);
 }
 
 CircularBuffer CircularBuffer::Create(int32_t capacity) {
@@ -786,8 +982,10 @@ void CircularBuffer::Push(const float *samples, int32_t n) const {
   SherpaOnnxCircularBufferPush(p_, samples, n);
 }
 
-std::vector<float> CircularBuffer::Get(int32_t start_index, int32_t n) const {
+std::vector<float> CircularBuffer::Get(int64_t start_index, int32_t n) const {
   const float *samples = SherpaOnnxCircularBufferGet(p_, start_index, n);
+  if (!samples) return {};
+
   std::vector<float> ans(n);
   std::copy(samples, samples + n, ans.begin());
 
@@ -803,7 +1001,7 @@ int32_t CircularBuffer::Size() const {
   return SherpaOnnxCircularBufferSize(p_);
 }
 
-int32_t CircularBuffer::Head() const {
+int64_t CircularBuffer::Head() const {
   return SherpaOnnxCircularBufferHead(p_);
 }
 
@@ -915,6 +1113,7 @@ std::vector<float> LinearResampler::Resample(const float *input,
                                              int32_t input_dim,
                                              bool flush) const {
   auto out = SherpaOnnxLinearResamplerResample(p_, input, input_dim, flush);
+  if (!out) return {};
 
   std::vector<float> ans{out->samples, out->samples + out->n};
 
@@ -936,6 +1135,10 @@ std::string GetVersionStr() { return SherpaOnnxGetVersionStr(); }
 std::string GetGitSha1() { return SherpaOnnxGetGitSha1(); }
 
 std::string GetGitDate() { return SherpaOnnxGetGitDate(); }
+
+std::string GetOnnxruntimeVersionStr() {
+  return SherpaOnnxGetOnnxruntimeVersionStr();
+}
 
 bool FileExists(const std::string &filename) {
   return SherpaOnnxFileExists(filename.c_str());
@@ -1061,6 +1264,432 @@ std::shared_ptr<std::vector<AudioEvent>> AudioTagging::ComputePtr(
     const OfflineStream *s, int32_t top_k /*= -1*/) {
   auto events = Compute(s, top_k);
   return std::make_shared<std::vector<AudioEvent>>(events);
+}
+
+// ============================================================
+// For Source Separation
+// ============================================================
+
+static void FillSourceSeparationModelConfig(
+    const OfflineSourceSeparationModelConfig &src,
+    SherpaOnnxOfflineSourceSeparationModelConfig *dst) {
+  memset(dst, 0, sizeof(*dst));
+  dst->spleeter.vocals = src.spleeter.vocals.c_str();
+  dst->spleeter.accompaniment = src.spleeter.accompaniment.c_str();
+  dst->uvr.model = src.uvr.model.c_str();
+  dst->num_threads = src.num_threads;
+  dst->provider = src.provider.c_str();
+  dst->debug = src.debug;
+}
+
+OfflineSourceSeparation OfflineSourceSeparation::Create(
+    const OfflineSourceSeparationConfig &config) {
+  struct SherpaOnnxOfflineSourceSeparationConfig c;
+  memset(&c, 0, sizeof(c));
+  FillSourceSeparationModelConfig(config.model, &c.model);
+
+  auto p = SherpaOnnxCreateOfflineSourceSeparation(&c);
+  return OfflineSourceSeparation(p);
+}
+
+void OfflineSourceSeparation::Destroy(
+    const SherpaOnnxOfflineSourceSeparation *p) const {
+  SherpaOnnxDestroyOfflineSourceSeparation(p);
+}
+
+OfflineSourceSeparation::OfflineSourceSeparation(
+    const SherpaOnnxOfflineSourceSeparation *p)
+    : MoveOnly<OfflineSourceSeparation, SherpaOnnxOfflineSourceSeparation>(p) {}
+
+SourceSeparationOutput OfflineSourceSeparation::Process(
+    const float *const *samples, int32_t num_channels, int32_t num_samples,
+    int32_t sample_rate) const {
+  auto output = SherpaOnnxOfflineSourceSeparationProcess(
+      p_, samples, num_channels, num_samples, sample_rate);
+  if (output == nullptr) {
+    return {};
+  }
+
+  SourceSeparationOutput ans;
+  ans.sample_rate = output->sample_rate;
+  ans.stems.resize(output->num_stems);
+  for (int32_t s = 0; s < output->num_stems; ++s) {
+    auto &stem = ans.stems[s];
+    auto &c_stem = output->stems[s];
+    stem.samples.resize(c_stem.num_channels);
+    for (int32_t c = 0; c < c_stem.num_channels; ++c) {
+      stem.samples[c] = {c_stem.samples[c], c_stem.samples[c] + c_stem.n};
+    }
+  }
+
+  SherpaOnnxDestroySourceSeparationOutput(output);
+  return ans;
+}
+
+int32_t OfflineSourceSeparation::GetOutputSampleRate() const {
+  return SherpaOnnxOfflineSourceSeparationGetOutputSampleRate(p_);
+}
+
+int32_t OfflineSourceSeparation::GetNumberOfStems() const {
+  return SherpaOnnxOfflineSourceSeparationGetNumberOfStems(p_);
+}
+
+// ============================================================================
+// Spoken Language Identification
+// ============================================================================
+
+SpokenLanguageIdentification SpokenLanguageIdentification::Create(
+    const SpokenLanguageIdentificationConfig &config) {
+  struct SherpaOnnxSpokenLanguageIdentificationConfig c;
+  memset(&c, 0, sizeof(c));
+  c.whisper.encoder = config.whisper.encoder.c_str();
+  c.whisper.decoder = config.whisper.decoder.c_str();
+  c.whisper.tail_paddings = config.whisper.tail_paddings;
+  c.num_threads = config.num_threads;
+  c.debug = config.debug;
+  c.provider = config.provider.c_str();
+
+  const SherpaOnnxSpokenLanguageIdentification *p =
+      SherpaOnnxCreateSpokenLanguageIdentification(&c);
+  return SpokenLanguageIdentification(p);
+}
+
+SpokenLanguageIdentification::SpokenLanguageIdentification(
+    const SherpaOnnxSpokenLanguageIdentification *p)
+    : MoveOnly<SpokenLanguageIdentification,
+               SherpaOnnxSpokenLanguageIdentification>(p) {}
+
+void SpokenLanguageIdentification::Destroy(
+    const SherpaOnnxSpokenLanguageIdentification *p) const {
+  SherpaOnnxDestroySpokenLanguageIdentification(p);
+}
+
+OfflineStream SpokenLanguageIdentification::CreateStream() const {
+  const SherpaOnnxOfflineStream *s =
+      SherpaOnnxSpokenLanguageIdentificationCreateOfflineStream(p_);
+  return OfflineStream(s);
+}
+
+SpokenLanguageIdentificationResult SpokenLanguageIdentification::Compute(
+    const OfflineStream *s) const {
+  const SherpaOnnxSpokenLanguageIdentificationResult *r =
+      SherpaOnnxSpokenLanguageIdentificationCompute(p_, s->Get());
+  SpokenLanguageIdentificationResult ans;
+  if (r && r->lang) {
+    ans.lang = r->lang;
+  }
+  SherpaOnnxDestroySpokenLanguageIdentificationResult(r);
+  return ans;
+}
+
+// ============================================================================
+// Speaker Embedding Extractor
+// ============================================================================
+
+SpeakerEmbeddingExtractor SpeakerEmbeddingExtractor::Create(
+    const SpeakerEmbeddingExtractorConfig &config) {
+  struct SherpaOnnxSpeakerEmbeddingExtractorConfig c;
+  memset(&c, 0, sizeof(c));
+  c.model = config.model.c_str();
+  c.num_threads = config.num_threads;
+  c.debug = config.debug;
+  c.provider = config.provider.c_str();
+
+  const SherpaOnnxSpeakerEmbeddingExtractor *p =
+      SherpaOnnxCreateSpeakerEmbeddingExtractor(&c);
+  return SpeakerEmbeddingExtractor(p);
+}
+
+SpeakerEmbeddingExtractor::SpeakerEmbeddingExtractor(
+    const SherpaOnnxSpeakerEmbeddingExtractor *p)
+    : MoveOnly<SpeakerEmbeddingExtractor,
+               SherpaOnnxSpeakerEmbeddingExtractor>(p) {}
+
+void SpeakerEmbeddingExtractor::Destroy(
+    const SherpaOnnxSpeakerEmbeddingExtractor *p) const {
+  SherpaOnnxDestroySpeakerEmbeddingExtractor(p);
+}
+
+int32_t SpeakerEmbeddingExtractor::Dim() const {
+  return SherpaOnnxSpeakerEmbeddingExtractorDim(p_);
+}
+
+OnlineStream SpeakerEmbeddingExtractor::CreateStream() const {
+  const SherpaOnnxOnlineStream *s =
+      SherpaOnnxSpeakerEmbeddingExtractorCreateStream(p_);
+  return OnlineStream(s);
+}
+
+bool SpeakerEmbeddingExtractor::IsReady(const OnlineStream *s) const {
+  return SherpaOnnxSpeakerEmbeddingExtractorIsReady(p_, s->Get()) != 0;
+}
+
+std::vector<float> SpeakerEmbeddingExtractor::ComputeEmbedding(
+    const OnlineStream *s) const {
+  const float *v =
+      SherpaOnnxSpeakerEmbeddingExtractorComputeEmbedding(p_, s->Get());
+  if (!v) return {};
+  int32_t dim = Dim();
+  std::vector<float> ans(v, v + dim);
+  SherpaOnnxSpeakerEmbeddingExtractorDestroyEmbedding(v);
+  return ans;
+}
+
+// ============================================================================
+// Speaker Embedding Manager
+// ============================================================================
+
+SpeakerEmbeddingManager SpeakerEmbeddingManager::Create(int32_t dim) {
+  const SherpaOnnxSpeakerEmbeddingManager *p =
+      SherpaOnnxCreateSpeakerEmbeddingManager(dim);
+  return SpeakerEmbeddingManager(p);
+}
+
+SpeakerEmbeddingManager::SpeakerEmbeddingManager(
+    const SherpaOnnxSpeakerEmbeddingManager *p)
+    : MoveOnly<SpeakerEmbeddingManager, SherpaOnnxSpeakerEmbeddingManager>(p) {}
+
+void SpeakerEmbeddingManager::Destroy(
+    const SherpaOnnxSpeakerEmbeddingManager *p) const {
+  SherpaOnnxDestroySpeakerEmbeddingManager(p);
+}
+
+bool SpeakerEmbeddingManager::Add(const std::string &name,
+                                  const float *v) const {
+  return SherpaOnnxSpeakerEmbeddingManagerAdd(p_, name.c_str(), v) != 0;
+}
+
+bool SpeakerEmbeddingManager::AddList(const std::string &name,
+                                      const float **v) const {
+  return SherpaOnnxSpeakerEmbeddingManagerAddList(p_, name.c_str(), v) != 0;
+}
+
+bool SpeakerEmbeddingManager::AddListFlattened(const std::string &name,
+                                               const float *v,
+                                               int32_t n) const {
+  return SherpaOnnxSpeakerEmbeddingManagerAddListFlattened(p_, name.c_str(), v,
+                                                           n) != 0;
+}
+
+bool SpeakerEmbeddingManager::Remove(const std::string &name) const {
+  return SherpaOnnxSpeakerEmbeddingManagerRemove(p_, name.c_str()) != 0;
+}
+
+std::string SpeakerEmbeddingManager::Search(const float *v,
+                                            float threshold) const {
+  const char *name =
+      SherpaOnnxSpeakerEmbeddingManagerSearch(p_, v, threshold);
+  if (!name) return {};
+  std::string ans(name);
+  SherpaOnnxSpeakerEmbeddingManagerFreeSearch(name);
+  return ans;
+}
+
+std::vector<SpeakerMatch> SpeakerEmbeddingManager::GetBestMatches(
+    const float *v, float threshold, int32_t n) const {
+  const SherpaOnnxSpeakerEmbeddingManagerBestMatchesResult *r =
+      SherpaOnnxSpeakerEmbeddingManagerGetBestMatches(p_, v, threshold, n);
+  std::vector<SpeakerMatch> ans;
+  if (r) {
+    for (int32_t i = 0; i < r->count; ++i) {
+      SpeakerMatch m;
+      m.score = r->matches[i].score;
+      if (r->matches[i].name) m.name = r->matches[i].name;
+      ans.push_back(std::move(m));
+    }
+    SherpaOnnxSpeakerEmbeddingManagerFreeBestMatches(r);
+  }
+  return ans;
+}
+
+bool SpeakerEmbeddingManager::Verify(const std::string &name, const float *v,
+                                     float threshold) const {
+  return SherpaOnnxSpeakerEmbeddingManagerVerify(p_, name.c_str(), v,
+                                                 threshold) != 0;
+}
+
+bool SpeakerEmbeddingManager::Contains(const std::string &name) const {
+  return SherpaOnnxSpeakerEmbeddingManagerContains(p_, name.c_str()) != 0;
+}
+
+int32_t SpeakerEmbeddingManager::NumSpeakers() const {
+  return SherpaOnnxSpeakerEmbeddingManagerNumSpeakers(p_);
+}
+
+int32_t SpeakerEmbeddingManager::Dim() const {
+  return SherpaOnnxSpeakerEmbeddingManagerDim(p_);
+}
+
+std::vector<std::string> SpeakerEmbeddingManager::GetAllSpeakers() const {
+  const char *const *names =
+      SherpaOnnxSpeakerEmbeddingManagerGetAllSpeakers(p_);
+  std::vector<std::string> ans;
+  if (names) {
+    for (int32_t i = 0; names[i]; ++i) {
+      ans.emplace_back(names[i]);
+    }
+    SherpaOnnxSpeakerEmbeddingManagerFreeAllSpeakers(names);
+  }
+  return ans;
+}
+
+std::vector<float> SpeakerEmbeddingManager::GetEmbedding(
+    const std::string &name) const {
+  const float *v =
+      SherpaOnnxSpeakerEmbeddingManagerGetEmbedding(p_, name.c_str());
+  if (!v) {
+    return {};
+  }
+  int32_t dim = Dim();
+  std::vector<float> ans(v, v + dim);
+  SherpaOnnxSpeakerEmbeddingManagerDestroyEmbedding(v);
+  return ans;
+}
+
+// ============================================================================
+// Offline Speaker Diarization
+// ============================================================================
+
+static int32_t DiarizationProgressCallback(int32_t num_processed_chunks,
+                                           int32_t num_total_chunks,
+                                           void *arg) {
+  auto *cb = static_cast<OfflineSpeakerDiarizationProgressCallback *>(arg);
+  (*cb)(num_processed_chunks, num_total_chunks);
+  return 0;
+}
+
+OfflineSpeakerDiarization OfflineSpeakerDiarization::Create(
+    const OfflineSpeakerDiarizationConfig &config) {
+  struct SherpaOnnxOfflineSpeakerDiarizationConfig c;
+  memset(&c, 0, sizeof(c));
+  c.segmentation.pyannote.model =
+      config.segmentation.pyannote.model.c_str();
+  c.segmentation.pyannote.window_shift_ratio =
+      config.segmentation.pyannote.window_shift_ratio;
+  c.segmentation.num_threads = config.segmentation.num_threads;
+  c.segmentation.debug = config.segmentation.debug;
+  c.segmentation.provider = config.segmentation.provider.c_str();
+  c.embedding.model = config.embedding.model.c_str();
+  c.embedding.num_threads = config.embedding.num_threads;
+  c.embedding.debug = config.embedding.debug;
+  c.embedding.provider = config.embedding.provider.c_str();
+  c.clustering.num_clusters = config.clustering.num_clusters;
+  c.clustering.threshold = config.clustering.threshold;
+  c.clustering.compute_confidence = config.clustering.compute_confidence ? 1 : 0;
+  c.min_duration_on = config.min_duration_on;
+  c.min_duration_off = config.min_duration_off;
+
+  const SherpaOnnxOfflineSpeakerDiarization *p =
+      SherpaOnnxCreateOfflineSpeakerDiarization(&c);
+  return OfflineSpeakerDiarization(p);
+}
+
+OfflineSpeakerDiarization::OfflineSpeakerDiarization(
+    const SherpaOnnxOfflineSpeakerDiarization *p)
+    : MoveOnly<OfflineSpeakerDiarization,
+               SherpaOnnxOfflineSpeakerDiarization>(p) {}
+
+void OfflineSpeakerDiarization::Destroy(
+    const SherpaOnnxOfflineSpeakerDiarization *p) const {
+  SherpaOnnxDestroyOfflineSpeakerDiarization(p);
+}
+
+int32_t OfflineSpeakerDiarization::GetSampleRate() const {
+  return SherpaOnnxOfflineSpeakerDiarizationGetSampleRate(p_);
+}
+
+void OfflineSpeakerDiarization::SetConfig(
+    const OfflineSpeakerDiarizationConfig &config) const {
+  struct SherpaOnnxOfflineSpeakerDiarizationConfig c;
+  memset(&c, 0, sizeof(c));
+  c.clustering.num_clusters = config.clustering.num_clusters;
+  c.clustering.threshold = config.clustering.threshold;
+  c.clustering.compute_confidence = config.clustering.compute_confidence ? 1 : 0;
+  SherpaOnnxOfflineSpeakerDiarizationSetConfig(p_, &c);
+}
+
+static std::vector<OfflineSpeakerDiarizationSegment> CollectSegments(
+    const SherpaOnnxOfflineSpeakerDiarizationResult *r) {
+  std::vector<OfflineSpeakerDiarizationSegment> ans;
+  if (!r) {
+    return ans;
+  }
+  int32_t num_segments =
+      SherpaOnnxOfflineSpeakerDiarizationResultGetNumSegments(r);
+  const SherpaOnnxOfflineSpeakerDiarizationSegment *segments =
+      SherpaOnnxOfflineSpeakerDiarizationResultSortByStartTime(r);
+  for (int32_t i = 0; i < num_segments; ++i) {
+    OfflineSpeakerDiarizationSegment seg;
+    seg.start = segments[i].start;
+    seg.end = segments[i].end;
+    seg.speaker = segments[i].speaker;
+    seg.confidence = segments[i].confidence;
+    ans.push_back(seg);
+  }
+  SherpaOnnxOfflineSpeakerDiarizationDestroySegment(segments);
+  return ans;
+}
+
+std::vector<OfflineSpeakerDiarizationSegment>
+OfflineSpeakerDiarization::Process(const float *samples, int32_t n) const {
+  const SherpaOnnxOfflineSpeakerDiarizationResult *r =
+      SherpaOnnxOfflineSpeakerDiarizationProcess(p_, samples, n);
+  auto ans = CollectSegments(r);
+  if (r) {
+    SherpaOnnxOfflineSpeakerDiarizationDestroyResult(r);
+  }
+  return ans;
+}
+
+std::vector<OfflineSpeakerDiarizationSegment>
+OfflineSpeakerDiarization::Process(
+    const float *samples, int32_t n,
+    const OfflineSpeakerDiarizationProgressCallback &callback) const {
+  if (!callback) {
+    return Process(samples, n);
+  }
+  OfflineSpeakerDiarizationProgressCallback cb = callback;
+  const SherpaOnnxOfflineSpeakerDiarizationResult *r =
+      SherpaOnnxOfflineSpeakerDiarizationProcessWithCallback(
+          p_, samples, n, DiarizationProgressCallback, &cb);
+  auto ans = CollectSegments(r);
+  if (r) {
+    SherpaOnnxOfflineSpeakerDiarizationDestroyResult(r);
+  }
+  return ans;
+}
+
+// ============================================================
+// For Offline Diacritization
+// ============================================================
+OfflineDiacritization OfflineDiacritization::Create(
+    const OfflineDiacritizationConfig &config) {
+  struct SherpaOnnxOfflineDiacritizationConfig c;
+  memset(&c, 0, sizeof(c));
+  c.model.catt_encoder = config.model.catt_encoder.c_str();
+  c.model.catt_decoder = config.model.catt_decoder.c_str();
+  c.model.num_threads = config.model.num_threads;
+  c.model.debug = config.model.debug;
+  c.model.provider = config.model.provider.c_str();
+
+  const SherpaOnnxOfflineDiacritization *diacrt =
+      SherpaOnnxCreateOfflineDiacritization(&c);
+  return OfflineDiacritization(diacrt);
+}
+
+OfflineDiacritization::OfflineDiacritization(const SherpaOnnxOfflineDiacritization *diacrt)
+    : MoveOnly<OfflineDiacritization, SherpaOnnxOfflineDiacritization>(diacrt) {}
+
+void OfflineDiacritization::Destroy(const SherpaOnnxOfflineDiacritization *diacrt) const {
+  SherpaOnnxDestroyOfflineDiacritization(diacrt);
+}
+
+std::string OfflineDiacritization::AddDiacritics(const std::string &text) const {
+  const char *result = SherpaOfflineDiacritizationAddDiacritics(p_, text.c_str());
+  if (!result) return {};
+  std::string ans(result);
+  SherpaOfflineDiacritizationFreeText(result);
+  return ans;
 }
 
 }  // namespace sherpa_onnx::cxx

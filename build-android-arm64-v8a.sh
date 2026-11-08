@@ -22,6 +22,28 @@ else
   dir=$PWD/build-android-arm64-v8a-static
 fi
 
+if [ -n "${SHERPA_ONNXRUNTIME_LIB_DIR:-}" ] && [ -n "${SHERPA_ONNXRUNTIME_INCLUDE_DIR:-}" ]; then
+  if [ ! -d "$SHERPA_ONNXRUNTIME_LIB_DIR" ]; then
+    echo "Error: SHERPA_ONNXRUNTIME_LIB_DIR does not exist: $SHERPA_ONNXRUNTIME_LIB_DIR"
+    exit 1
+  fi
+  if [ ! -d "$SHERPA_ONNXRUNTIME_INCLUDE_DIR" ]; then
+    echo "Error: SHERPA_ONNXRUNTIME_INCLUDE_DIR does not exist: $SHERPA_ONNXRUNTIME_INCLUDE_DIR"
+    exit 1
+  fi
+  SHERPA_ONNXRUNTIME_LIB_DIR=$(cd "$SHERPA_ONNXRUNTIME_LIB_DIR" && pwd)
+  SHERPA_ONNXRUNTIME_INCLUDE_DIR=$(cd "$SHERPA_ONNXRUNTIME_INCLUDE_DIR" && pwd)
+  export SHERPA_ONNXRUNTIME_LIB_DIR
+  export SHERPA_ONNXRUNTIME_INCLUDE_DIR
+elif [ -n "${SHERPA_ONNX_ONNXRUNTIME_ROOT:-}" ] && [ "$BUILD_SHARED_LIBS" == ON ]; then
+  if [ ! -d "$SHERPA_ONNX_ONNXRUNTIME_ROOT" ]; then
+    echo "Error: SHERPA_ONNX_ONNXRUNTIME_ROOT does not exist: $SHERPA_ONNX_ONNXRUNTIME_ROOT"
+    exit 1
+  fi
+  SHERPA_ONNX_ONNXRUNTIME_ROOT=$(cd "$SHERPA_ONNX_ONNXRUNTIME_ROOT" && pwd)
+  export SHERPA_ONNX_ONNXRUNTIME_ROOT
+fi
+
 mkdir -p $dir
 cd $dir
 
@@ -68,9 +90,14 @@ fi
 
 echo "ANDROID_NDK: $ANDROID_NDK"
 sleep 1
-onnxruntime_version=1.17.1
+onnxruntime_version=${SHERPA_ONNX_ONNXRUNTIME_VERSION:-1.28.2}
 
-if [ $BUILD_SHARED_LIBS == ON ]; then
+if [ -n "${SHERPA_ONNXRUNTIME_LIB_DIR:-}" ] && [ -n "${SHERPA_ONNXRUNTIME_INCLUDE_DIR:-}" ]; then
+  echo "Using externally provided ONNX Runtime"
+elif [ -n "${SHERPA_ONNX_ONNXRUNTIME_ROOT:-}" ] && [ "$BUILD_SHARED_LIBS" == ON ]; then
+  export SHERPA_ONNXRUNTIME_LIB_DIR="$SHERPA_ONNX_ONNXRUNTIME_ROOT/jni/arm64-v8a/"
+  export SHERPA_ONNXRUNTIME_INCLUDE_DIR="$SHERPA_ONNX_ONNXRUNTIME_ROOT/headers/"
+elif [ "$BUILD_SHARED_LIBS" == ON ]; then
   if [ ! -f $onnxruntime_version/jni/arm64-v8a/libonnxruntime.so ]; then
     mkdir -p $onnxruntime_version
     pushd $onnxruntime_version
@@ -146,10 +173,6 @@ cmake -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" 
     -DSHERPA_ONNX_ENABLE_TTS=$SHERPA_ONNX_ENABLE_TTS \
     -DSHERPA_ONNX_ENABLE_SPEAKER_DIARIZATION=$SHERPA_ONNX_ENABLE_SPEAKER_DIARIZATION \
     -DSHERPA_ONNX_ENABLE_BINARY=$SHERPA_ONNX_ENABLE_BINARY \
-    -DBUILD_PIPER_PHONMIZE_EXE=OFF \
-    -DBUILD_PIPER_PHONMIZE_TESTS=OFF \
-    -DBUILD_ESPEAK_NG_EXE=OFF \
-    -DBUILD_ESPEAK_NG_TESTS=OFF \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBS=$BUILD_SHARED_LIBS \
     -DSHERPA_ONNX_ENABLE_PYTHON=OFF \
@@ -173,7 +196,9 @@ cmake -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" 
 # make VERBOSE=1 -j4
 make -j4
 make install/strip
-cp -fv $onnxruntime_version/jni/arm64-v8a/libonnxruntime.so install/lib 2>/dev/null || true
+if [ "$BUILD_SHARED_LIBS" == ON ]; then
+  cp -fv "$SHERPA_ONNXRUNTIME_LIB_DIR/libonnxruntime.so" install/lib
+fi
 
 if [ $SHERPA_ONNX_ENABLE_RKNN == ON ]; then
   cp -fv $SHERPA_ONNX_RKNN_TOOLKIT2_LIB_DIR/librknnrt.so install/lib

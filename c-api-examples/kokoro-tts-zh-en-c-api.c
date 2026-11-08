@@ -26,7 +26,7 @@ rm kokoro-multi-lang-v1_0.tar.bz2
 #include "sherpa-onnx/c-api/c-api.h"
 
 static int32_t ProgressCallback(const float *samples, int32_t num_samples,
-                                float progress) {
+                                float progress, void *arg) {
   fprintf(stderr, "Progress: %.3f%%\n", progress * 100);
   // return 1 to continue generating
   // return 0 to stop generating
@@ -39,8 +39,6 @@ int32_t main(int32_t argc, char *argv[]) {
   config.model.kokoro.model = "./kokoro-multi-lang-v1_0/model.onnx";
   config.model.kokoro.voices = "./kokoro-multi-lang-v1_0/voices.bin";
   config.model.kokoro.tokens = "./kokoro-multi-lang-v1_0/tokens.txt";
-  config.model.kokoro.data_dir = "./kokoro-multi-lang-v1_0/espeak-ng-data";
-  config.model.kokoro.dict_dir = "./kokoro-multi-lang-v1_0/dict";
   config.model.kokoro.lexicon =
       "./kokoro-multi-lang-v1_0/lexicon-us-en.txt,./kokoro-multi-lang-v1_0/"
       "lexicon-zh.txt";
@@ -58,15 +56,19 @@ int32_t main(int32_t argc, char *argv[]) {
   const SherpaOnnxOfflineTts *tts = SherpaOnnxCreateOfflineTts(&config);
   int32_t sid = 0;    // there are 53 speakers
   float speed = 1.0;  // larger -> faster in speech speed
+  SherpaOnnxGenerationConfig cfg = {0};
+  cfg.silence_scale = 0.2f;
+  cfg.sid = sid;
+  cfg.speed = speed;
 
 #if 0
   // If you don't want to use a callback, then please enable this branch
   const SherpaOnnxGeneratedAudio *audio =
-      SherpaOnnxOfflineTtsGenerate(tts, text, sid, speed);
+      SherpaOnnxOfflineTtsGenerateWithConfig(tts, text, &cfg, NULL, NULL);
 #else
   const SherpaOnnxGeneratedAudio *audio =
-      SherpaOnnxOfflineTtsGenerateWithProgressCallback(tts, text, sid, speed,
-                                                       ProgressCallback);
+      SherpaOnnxOfflineTtsGenerateWithConfig(tts, text, &cfg, ProgressCallback,
+                                             NULL);
 #endif
 
   SherpaOnnxWriteWave(audio->samples, audio->n, audio->sample_rate, filename);

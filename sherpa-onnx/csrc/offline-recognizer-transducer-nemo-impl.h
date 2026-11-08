@@ -32,7 +32,8 @@ namespace sherpa_onnx {
 OfflineRecognitionResult Convert(const OfflineTransducerDecoderResult &src,
                                  const SymbolTable &sym_table,
                                  int32_t frame_shift_ms,
-                                 int32_t subsampling_factor);
+                                 int32_t subsampling_factor,
+                                 int32_t remove_cjk_space);
 
 class OfflineRecognizerTransducerNeMoImpl : public OfflineRecognizerImpl {
  public:
@@ -43,11 +44,10 @@ class OfflineRecognizerTransducerNeMoImpl : public OfflineRecognizerImpl {
         symbol_table_(config_.model_config.tokens),
         model_(std::make_unique<OfflineTransducerNeMoModel>(
             config_.model_config)) {
-    
     if (symbol_table_.Contains("<unk>")) {
       unk_id_ = symbol_table_["<unk>"];
     }
-    
+
     if (config_.decoding_method == "greedy_search") {
       decoder_ = std::make_unique<OfflineTransducerGreedySearchNeMoDecoder>(
           model_.get(), config_.blank_penalty, model_->IsTDT());
@@ -63,9 +63,10 @@ class OfflineRecognizerTransducerNeMoImpl : public OfflineRecognizerImpl {
         InitHotwords();
       }
 
-      decoder_ = std::make_unique<OfflineTransducerModifiedBeamSearchNeMoDecoder>(
-          model_.get(), config_.max_active_paths, unk_id_,
-          config_.blank_penalty, model_->IsTDT(), config_.hotwords_score);
+      decoder_ =
+          std::make_unique<OfflineTransducerModifiedBeamSearchNeMoDecoder>(
+              model_.get(), config_.max_active_paths, unk_id_,
+              config_.blank_penalty, model_->IsTDT(), config_.hotwords_score);
     } else {
       SHERPA_ONNX_LOGE("Unsupported decoding method: %s",
                        config_.decoding_method.c_str());
@@ -82,11 +83,10 @@ class OfflineRecognizerTransducerNeMoImpl : public OfflineRecognizerImpl {
         symbol_table_(mgr, config_.model_config.tokens),
         model_(std::make_unique<OfflineTransducerNeMoModel>(
             mgr, config_.model_config)) {
-    
     if (symbol_table_.Contains("<unk>")) {
       unk_id_ = symbol_table_["<unk>"];
     }
-    
+
     if (config_.decoding_method == "greedy_search") {
       decoder_ = std::make_unique<OfflineTransducerGreedySearchNeMoDecoder>(
           model_.get(), config_.blank_penalty, model_->IsTDT());
@@ -103,9 +103,10 @@ class OfflineRecognizerTransducerNeMoImpl : public OfflineRecognizerImpl {
         InitHotwords(mgr);
       }
 
-      decoder_ = std::make_unique<OfflineTransducerModifiedBeamSearchNeMoDecoder>(
-          model_.get(), config_.max_active_paths, unk_id_,
-          config_.blank_penalty, model_->IsTDT(), config_.hotwords_score);
+      decoder_ =
+          std::make_unique<OfflineTransducerModifiedBeamSearchNeMoDecoder>(
+              model_.get(), config_.max_active_paths, unk_id_,
+              config_.blank_penalty, model_->IsTDT(), config_.hotwords_score);
     } else {
       SHERPA_ONNX_LOGE("Unsupported decoding method: %s",
                        config_.decoding_method.c_str());
@@ -202,13 +203,17 @@ class OfflineRecognizerTransducerNeMoImpl : public OfflineRecognizerImpl {
 
     Ort::Value encoder_out = Transpose12(model_->Allocator(), &t[0]);
 
-    auto results = decoder_->Decode(std::move(encoder_out), std::move(t[1]),
-                                    ss, n);
+    auto results =
+        decoder_->Decode(std::move(encoder_out), std::move(t[1]), ss, n);
 
     int32_t frame_shift_ms = 10;
     for (int32_t i = 0; i != n; ++i) {
+      // Per-stream option "remove_cjk_space": use 1 or 0. 0 means disable,
+      // non-zero (default 1) means enable removing spaces between CJK
+      // characters of scripts without word spacing.
       auto r = Convert(results[i], symbol_table_, frame_shift_ms,
-                       model_->SubsamplingFactor());
+                       model_->SubsamplingFactor(),
+                       ss[i]->GetOptionInt("remove_cjk_space", 1));
 
       // Remove leading space from BPE tokenization
       if (!r.text.empty() && r.text.front() == ' ') {
@@ -279,7 +284,7 @@ class OfflineRecognizerTransducerNeMoImpl : public OfflineRecognizerImpl {
   void InitHotwords() {
     // each line in hotwords_file contains space-separated words
 
-    std::ifstream is(config_.hotwords_file);
+    auto is = OpenInputFile(config_.hotwords_file);
     if (!is) {
       SHERPA_ONNX_LOGE("Open hotwords file failed: '%s'",
                        config_.hotwords_file.c_str());

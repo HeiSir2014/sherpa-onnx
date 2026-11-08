@@ -6,8 +6,32 @@ data class OfflineSpeechDenoiserGtcrnModelConfig(
     var model: String = "",
 )
 
+data class OfflineSpeechDenoiserDpdfNetModelConfig(
+    var model: String = "",
+    var attenuationLimitDb: Float = 0.0f,
+)
+
+// VoxLock keeps the voice of one speaker (the caller) and removes the other
+// voices. The model is from https://github.com/arbazsiddiqui/voxlock
+data class OfflineSpeechDenoiserVoxLockModelConfig(
+    var enrollModel: String = "",
+    var chunkModel: String = "",
+    // Optional. A wave file with at least 3 seconds of the caller's voice.
+    // From a longer file, the loudest 3 seconds within its first 30 seconds
+    // are used. A file that is shorter or cannot be read is ignored, as if it
+    // were empty. If empty or ignored, the voice sample is taken from the
+    // input audio: the offline denoiser uses the loudest 3 seconds in the
+    // first 15 seconds of the input, and the online denoiser passes audio
+    // through unchanged until 3 seconds of speech have been heard, then uses
+    // that speech.
+    var voiceSample: String = "",
+)
+
 data class OfflineSpeechDenoiserModelConfig(
     var gtcrn: OfflineSpeechDenoiserGtcrnModelConfig = OfflineSpeechDenoiserGtcrnModelConfig(),
+    var dpdfnet: OfflineSpeechDenoiserDpdfNetModelConfig = OfflineSpeechDenoiserDpdfNetModelConfig(),
+    var voxlock: OfflineSpeechDenoiserVoxLockModelConfig =
+        OfflineSpeechDenoiserVoxLockModelConfig(),
     var numThreads: Int = 1,
     var debug: Boolean = false,
     var provider: String = "cpu",
@@ -16,20 +40,6 @@ data class OfflineSpeechDenoiserModelConfig(
 data class OfflineSpeechDenoiserConfig(
     var model: OfflineSpeechDenoiserModelConfig = OfflineSpeechDenoiserModelConfig(),
 )
-
-class DenoisedAudio(
-    val samples: FloatArray,
-    val sampleRate: Int,
-) {
-    fun save(filename: String) =
-        saveImpl(filename = filename, samples = samples, sampleRate = sampleRate)
-
-    private external fun saveImpl(
-        filename: String,
-        samples: FloatArray,
-        sampleRate: Int
-    ): Boolean
-}
 
 class OfflineSpeechDenoiser(
     assetManager: AssetManager? = null,
@@ -42,6 +52,9 @@ class OfflineSpeechDenoiser(
             newFromAsset(assetManager, config)
         } else {
             newFromFile(config)
+        }
+        require(ptr != 0L) {
+            "Invalid OfflineSpeechDenoiserConfig: failed to create native OfflineSpeechDenoiser"
         }
     }
 

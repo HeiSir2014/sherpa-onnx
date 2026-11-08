@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "sherpa-onnx/csrc/context-graph.h"
+#include "sherpa-onnx/csrc/file-utils.h"
 #include "sherpa-onnx/csrc/log.h"
 #include "sherpa-onnx/csrc/macros.h"
 #include "sherpa-onnx/csrc/offline-recognizer-impl.h"
@@ -25,14 +26,19 @@
 #include "sherpa-onnx/csrc/offline-transducer-modified-beam-search-decoder.h"
 #include "sherpa-onnx/csrc/pad-sequence.h"
 #include "sherpa-onnx/csrc/symbol-table.h"
+#include "sherpa-onnx/csrc/text-utils.h"
 #include "sherpa-onnx/csrc/utils.h"
 #include "ssentencepiece/csrc/ssentencepiece.h"
 
 namespace sherpa_onnx {
 
+// remove_cjk_space: use 1 or 0. 0 means disable, non-zero means enable
+// removing spaces between CJK characters of scripts without word spacing.
+// See OfflineStream::SetOption("remove_cjk_space", ...).
 static OfflineRecognitionResult Convert(
     const OfflineTransducerDecoderResult &src, const SymbolTable &sym_table,
-    int32_t frame_shift_ms, int32_t subsampling_factor) {
+    int32_t frame_shift_ms, int32_t subsampling_factor,
+    int32_t remove_cjk_space = 1) {
   OfflineRecognitionResult r;
   r.tokens.reserve(src.tokens.size());
   r.timestamps.reserve(src.timestamps.size());
@@ -57,6 +63,10 @@ static OfflineRecognitionResult Convert(
   }
   if (sym_table.IsByteBpe()) {
     text = sym_table.DecodeByteBpe(text);
+  }
+
+  if (remove_cjk_space != 0) {
+    text = RemoveSpaceBetweenCjk(text);
   }
 
   r.text = std::move(text);
@@ -113,7 +123,7 @@ class OfflineRecognizerTransducerImpl : public OfflineRecognizerImpl {
     } else {
       SHERPA_ONNX_LOGE("Unsupported decoding method: %s",
                        config_.decoding_method.c_str());
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
   }
 
@@ -153,7 +163,7 @@ class OfflineRecognizerTransducerImpl : public OfflineRecognizerImpl {
     } else {
       SHERPA_ONNX_LOGE("Unsupported decoding method: %s",
                        config_.decoding_method.c_str());
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
   }
 
@@ -245,8 +255,12 @@ class OfflineRecognizerTransducerImpl : public OfflineRecognizerImpl {
 
     int32_t frame_shift_ms = 10;
     for (int32_t i = 0; i != n; ++i) {
+      // Per-stream option "remove_cjk_space": use 1 or 0. 0 means disable,
+      // non-zero (default 1) means enable removing spaces between CJK
+      // characters of scripts without word spacing.
       auto r = Convert(results[i], symbol_table_, frame_shift_ms,
-                       model_->SubsamplingFactor());
+                       model_->SubsamplingFactor(),
+                       ss[i]->GetOptionInt("remove_cjk_space", 1));
       r.text = ApplyInverseTextNormalization(std::move(r.text));
       r.text = ApplyHomophoneReplacer(std::move(r.text));
 
@@ -259,11 +273,11 @@ class OfflineRecognizerTransducerImpl : public OfflineRecognizerImpl {
   void InitHotwords() {
     // each line in hotwords_file contains space-separated words
 
-    std::ifstream is(config_.hotwords_file);
+    auto is = OpenInputFile(config_.hotwords_file);
     if (!is) {
       SHERPA_ONNX_LOGE("Open hotwords file failed: '%s'",
                        config_.hotwords_file.c_str());
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
 
     if (!EncodeHotwords(is, config_.model_config.modeling_unit, symbol_table_,
@@ -287,7 +301,7 @@ class OfflineRecognizerTransducerImpl : public OfflineRecognizerImpl {
     if (!is) {
       SHERPA_ONNX_LOGE("Open hotwords file failed: '%s'",
                        config_.hotwords_file.c_str());
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
 
     if (!EncodeHotwords(is, config_.model_config.modeling_unit, symbol_table_,

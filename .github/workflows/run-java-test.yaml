@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - master
+      - jni
+      - java
     paths:
       - '.github/workflows/run-java-test.yaml'
       - 'cmake/**'
@@ -27,7 +29,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, macos-14]
+        include:
+          - os: ubuntu-latest
+
+          - os: ubuntu-24.04-arm
+
+          - os: macos-latest
+
+          - os: macos-14
+
+          - os: windows-2022
+            arch: x64
+
+          - os: windows-11-arm
+            arch: ARM64
 
     steps:
       - uses: actions/checkout@v4
@@ -41,9 +56,21 @@ jobs:
           git diff .
 
       - name: ccache
+        if: runner.os != 'Windows'
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: ${{ matrix.os }}-java
+
+      - name: sccache (Windows)
+        # sccache is disabled on windows-11-arm: sccache-action extracts its
+        # archive with pwsh, which crashes intermittently on this runner
+        # ("Internal CLR error. 0x80131506") and fails the job before the build.
+        if: runner.os == 'Windows' && matrix.os != 'windows-11-arm'
+        uses: mozilla-actions/sccache-action@v0.0.7
+
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
 
       - name: OS info
         shell: bash
@@ -71,42 +98,180 @@ jobs:
         shell: bash
         run: |
           cd sherpa-onnx/java-api/
-          make
-          ls -lh
+          mvn package
+          ls -lh target/*.jar
 
       - uses: actions/upload-artifact@v4
         with:
           name: sherpa-onnx-jar-${{ matrix.os }}
-          path: sherpa-onnx/java-api/build
+          path: sherpa-onnx/java-api/target
 
       - name:  Build sherpa-onnx (C++)
         shell: bash
         run: |
-          export CMAKE_CXX_COMPILER_LAUNCHER=ccache
-          export PATH="/usr/lib/ccache:/usr/local/opt/ccache/libexec:$PATH"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            if command -v sccache >/dev/null 2>&1; then
+              export CMAKE_C_COMPILER_LAUNCHER=sccache
+              export CMAKE_CXX_COMPILER_LAUNCHER=sccache
+            fi
+          else
+            export CMAKE_CXX_COMPILER_LAUNCHER=ccache
+          fi
 
           mkdir build
           cd build
 
+          cmake_args=""
+          if [[ "${{ matrix.arch }}" != "" ]]; then
+            cmake_args="-A ${{ matrix.arch }}"
+          fi
+
           cmake \
+            $cmake_args \
             -DSHERPA_ONNX_ENABLE_PYTHON=OFF \
             -DSHERPA_ONNX_ENABLE_TESTS=OFF \
             -DSHERPA_ONNX_ENABLE_CHECK=OFF \
             -DBUILD_SHARED_LIBS=ON \
             -DSHERPA_ONNX_ENABLE_PORTAUDIO=OFF \
             -DSHERPA_ONNX_ENABLE_BINARY=OFF \
-            -DBUILD_ESPEAK_NG_EXE=OFF \
             -DSHERPA_ONNX_ENABLE_JNI=ON \
+            -DCMAKE_INSTALL_PREFIX=./install \
             ..
 
-            make -j4
-            ls -lh lib
+          cmake --build . --config Release
+          cmake --build . --config Release --target install
+
+      - name: Copy libs to build/lib
+        shell: bash
+        run: |
+          mkdir -p build/lib
+          cp -fv build/install/lib/*.dll build/lib/ || true
+          cp -fv build/install/lib/*.lib build/lib/ || true
+          cp -fv build/install/lib/*.so build/lib/ || true
+          cp -fv build/install/lib/*.dylib build/lib/ || true
+
+          ls -lh build/lib/
 
       - name:  Run java version test
         shell: bash
         run: |
           cd ./java-api-examples
           ./run-version-test.sh
+
+      - name:  Run speech enhancement (VoxLock)
+        shell: bash
+        run: |
+          cd ./java-api-examples
+          ./run-non-streaming-speech-enhancement-voxlock.sh
+          ./run-non-streaming-speech-enhancement-voxlock-with-voice-sample.sh
+          ./run-streaming-speech-enhancement-voxlock.sh
+          ./run-streaming-speech-enhancement-voxlock-with-voice-sample.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NonStreamingSpeechEnhancementVoxLock-${{ matrix.os }}
+          # each run-*.sh keeps its input and output wavs in a folder named
+          # after the example
+          path: java-api-examples/NonStreamingSpeechEnhancementVoxLock
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NonStreamingSpeechEnhancementVoxLockWithVoiceSample-${{ matrix.os }}
+          path: java-api-examples/NonStreamingSpeechEnhancementVoxLockWithVoiceSample
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StreamingSpeechEnhancementVoxLock-${{ matrix.os }}
+          path: java-api-examples/StreamingSpeechEnhancementVoxLock
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StreamingSpeechEnhancementVoxLockWithVoiceSample-${{ matrix.os }}
+          path: java-api-examples/StreamingSpeechEnhancementVoxLockWithVoiceSample
+          if-no-files-found: warn
+
+      - name:  Run java test (Non-Streaming TTS)
+        shell: bash
+        run: |
+          cd ./java-api-examples
+
+           ./run-pocket-tts.sh
+           ./run-zipvoice-tts-lexicon.sh
+           ./run-supertonic-tts.sh
+           ./run-non-streaming-tts-kitten-en-lexicon.sh
+           ./run-non-streaming-tts-kokoro-zh-en-lexicon.sh
+           ./run-non-streaming-tts-kokoro-en-lexicon.sh
+           ./run-non-streaming-tts-matcha-zh-lexicon.sh
+          ./run-non-streaming-tts-matcha-en-lexicon.sh
+          ls -lh
+
+           rm -rf sherpa-onnx-pocket-tts-*
+           rm -rf sherpa-onnx-zipvoice-distill-int8-zh-en-emilia
+           rm -rf sherpa-onnx-supertonic-*
+           rm -rf kitten-nano-en-*
+           rm -rf kokoro-multi-*
+           rm -rf kokoro-en-*
+
+           rm -rf matcha-icefall-*
+           rm vocos-22khz-univ.onnx
+           rm vocos_24khz.onnx
+           rm -f lexicon-en-us.txt
+
+          ./run-non-streaming-tts-piper-en-lexicon.sh
+          ./run-non-streaming-tts-piper-en-with-callback-lexicon.sh
+          rm -rf vits-piper-*
+          rm -f lexicon-en-us.txt
+
+          ./run-non-streaming-tts-coqui-de.sh
+          rm -rf vits-coqui-*
+
+          ./run-non-streaming-tts-vits-zh-lexicon.sh
+          rm -rf vits-zh-*
+
+          ./run-non-streaming-tts-piper-en-phonemize.sh
+          ./run-non-streaming-tts-piper-en-with-callback-phonemize.sh
+          ./run-non-streaming-tts-kitten-en-phonemize.sh
+          ./run-non-streaming-tts-kokoro-en-phonemize.sh
+          ./run-non-streaming-tts-matcha-en-phonemize.sh
+          ./run-non-streaming-tts-vits-de-phonemize.sh
+          ls -lh
+
+          rm -rf vits-piper-* kitten-nano-en-* kokoro-en-* matcha-icefall-*
+          rm -f vocos-22khz-univ.onnx
+          rm -f piper-phonemize-*.jar
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tts-wav-files-${{ matrix.os }}
+          path: |
+            java-api-examples/tts-*.wav
+            java-api-examples/generated-*.wav
+
+      - name:  Run java test (speaker diarization)
+        shell: bash
+        run: |
+          cd ./java-api-examples
+          ./run-offline-speaker-diarization.sh
+          rm -rfv *.onnx *.wav sherpa-onnx-pyannote-*
+
+      - name:  Run java test (Cohere Transcribe)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cd ./java-api-examples
+          ./run-non-streaming-decode-file-cohere-transcribe.sh
+          rm -rf sherpa-onnx-cohere-transcribe-*
+
+      - name:  Run java test (Qwen3 ASR)
+        if: matrix.os != 'ubuntu-latest'
+        shell: bash
+        run: |
+          cd ./java-api-examples
+          ./run-non-streaming-decode-file-qwen3-asr.sh
+          rm -rf sherpa-onnx-qwen3-*
 
       - name:  Run java test (Non-Streaming ASR)
         shell: bash
@@ -116,6 +281,9 @@ jobs:
           ./run-non-streaming-decode-file-fire-red-asr-ctc.sh
 
           ./run-non-streaming-decode-file-zipformer-ctc.sh
+          rm -rf sherpa-onnx-zipformer-ctc-*
+
+          ./run-non-streaming-zipformer-ctc-hlg.sh
           rm -rf sherpa-onnx-zipformer-ctc-*
 
           ./run-non-streaming-decode-file-dolphin-ctc.sh
@@ -207,14 +375,17 @@ jobs:
           rm *.wav
           rm -rf sherpa-onnx-dolphin-*
 
-      - name:  Run speech enhancement (GTCRN)
+      - name:  Run speech enhancement
         shell: bash
         run: |
           cd ./java-api-examples
           ./run-non-streaming-speech-enhancement-gtcrn.sh
+          ./run-non-streaming-speech-enhancement-dpdfnet.sh
+          ./run-streaming-speech-enhancement-gtcrn.sh
+          ./run-streaming-speech-enhancement-dpdfnet.sh
           ls -lh *.wav
 
-          rm -fv gtcrn_simple.onnx *.wav
+          rm -fv gtcrn_simple.onnx dpdfnet_baseline.onnx *.wav
 
       - name:  Run java test (Online add punctuations)
         shell: bash
@@ -232,12 +403,13 @@ jobs:
           # Delete model files to save space
           rm -rf sherpa-onnx-punct-*
 
-      - name:  Run java test (speaker diarization)
+      - name:  Run java test (Offline add diacritics)
         shell: bash
         run: |
           cd ./java-api-examples
-          ./run-offline-speaker-diarization.sh
-          rm -rfv *.onnx *.wav sherpa-onnx-pyannote-*
+          ./run-offline-add-diacritics.sh
+          # Delete model files to save space
+          rm -rf catt_eo_model_onnx
 
       - name:  Run java test (kws)
         shell: bash
@@ -333,39 +505,591 @@ jobs:
           ./run-streaming-decode-file-transducer.sh
           rm -rf sherpa-onnx-streaming-*
 
-      - name:  Run java test (Non-Streaming TTS)
+  run_maven_test:
+    runs-on: ${{ matrix.os }}
+    name: maven-${{ matrix.os }} ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: "x64"
+            native_lib: linux-x64
+
+          - os: ubuntu-24.04-arm
+            arch: "arm64"
+            native_lib: linux-aarch64
+
+          - os: macos-latest
+            arch: "arm64"
+            native_lib: osx-aarch64
+
+          - os: macos-15-intel
+            arch: "x64"
+            native_lib: osx-x64
+
+          - os: windows-2022
+            arch: "x64"
+            native_lib: win-x64
+
+          - os: windows-11-arm
+            arch: "arm64"
+            native_lib: win-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Show java version
         shell: bash
         run: |
-          cd ./java-api-examples
+          java --version
+          javac --version
 
-          ./run-pocket-tts.sh
-          ./run-supertonic-tts.sh
-          ./run-non-streaming-tts-kitten-en.sh
-          ./run-non-streaming-tts-kokoro-zh-en.sh
-          ./run-non-streaming-tts-kokoro-en.sh
-          ./run-non-streaming-tts-matcha-zh.sh
-          ./run-non-streaming-tts-matcha-en.sh
-          ls -lh
+      - name: Update pom.xml for this platform
+        shell: bash
+        run: |
+          cd java-api-examples/maven-examples
 
-          rm -rf sherpa-onnx-pocket-tts-*
-          rm -rf sherpa-onnx-supertonic-tts-*
-          rm -rf kitten-nano-en-*
-          rm -rf kokoro-multi-*
-          rm -rf kokoro-en-*
+          native_lib=${{ matrix.native_lib }}
 
-          rm -rf matcha-icefall-*
-          rm vocos-22khz-univ.onnx
+          # Comment out all native lib dependency blocks, then uncomment the target one
+          python3 << 'PYEOF'
+          import re
 
-          ./run-non-streaming-tts-piper-en.sh
-          rm -rf vits-piper-*
+          native_lib = "${{ matrix.native_lib }}"
+          target_artifact = f"sherpa-onnx-native-lib-{native_lib}"
 
-          ./run-non-streaming-tts-coqui-de.sh
-          rm -rf vits-coqui-*
+          with open("pom.xml", "r") as f:
+              content = f.read()
 
-          ./run-non-streaming-tts-vits-zh.sh
-          rm -rf vits-zh-*
+          # Pattern to match a native lib dependency block (commented or not)
+          # Each block has a platform comment, then the dependency (possibly wrapped in <!-- -->)
+          pattern = re.compile(
+              r'(        <!-- [A-Za-z][^\n]*-->\n)'        # platform comment line
+              r'(        <!--\n)?'                          # optional opening comment
+              r'(        <dependency>\n'
+              r'            <groupId>com\.github\.k2-fsa\.sherpa-onnx</groupId>\n'
+              r'            <artifactId>(sherpa-onnx-native-lib-[^<]+)</artifactId>\n'
+              r'            <version>[^<]+</version>\n'
+              r'        </dependency>\n)'
+              r'(        -->\n)?',                          # optional closing comment
+              re.MULTILINE
+          )
 
-      - uses: actions/upload-artifact@v4
+          def replace_block(m):
+              comment_line = m.group(1)
+              dep_block = m.group(3)
+              artifact = m.group(4)
+
+              if artifact == target_artifact:
+                  # Uncomment: return without comment markers
+                  return comment_line + dep_block
+              else:
+                  # Comment out: wrap in <!-- -->
+                  return comment_line + "        <!--\n" + dep_block + "        -->\n"
+
+          content = pattern.sub(replace_block, content)
+
+          with open("pom.xml", "w") as f:
+              f.write(content)
+          PYEOF
+
+      - name: Show pom.xml for debugging
+        shell: bash
+        run: |
+          cat java-api-examples/maven-examples/pom.xml
+
+      - name: Build maven example
+        shell: bash
+        run: |
+          cd java-api-examples/maven-examples
+          mvn package
+
+          ls -lh target/*.jar
+
+      - name: Verify jar contents
+        shell: bash
+        run: |
+          cd java-api-examples/maven-examples
+
+          echo "=== Jar size ==="
+          ls -lh target/sherpa-onnx-maven-example-2.0.1.jar
+
+          echo "=== Native libs in jar ==="
+          unzip -l target/sherpa-onnx-maven-example-2.0.1.jar | grep -E "\.so$|\.dylib$|\.dll$" || true
+
+      - name: Run maven example
+        shell: bash
+        run: |
+          cd java-api-examples/maven-examples
+          java -jar target/sherpa-onnx-maven-example-2.0.1.jar
+
+  run_maven_test_approach1:
+    runs-on: ${{ matrix.os }}
+    name: maven-approach1-${{ matrix.os }} ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: "x64"
+
+          - os: ubuntu-24.04-arm
+            arch: "arm64"
+
+          - os: macos-latest
+            arch: "arm64"
+
+          - os: macos-15-intel
+            arch: "x64"
+
+          - os: windows-2022
+            arch: "x64"
+
+          - os: windows-11-arm
+            arch: "arm64"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
         with:
-          name: tts-wav-files-${{ matrix.os }}
-          path: java-api-examples/*.wav
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Show java version
+        shell: bash
+        run: |
+          java --version
+          javac --version
+
+      - name: Write pom.xml for Approach 1
+        shell: bash
+        run: |
+          cd java-api-examples/maven-examples
+
+          cat > pom.xml << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <project xmlns="http://maven.apache.org/POM/4.0.0"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+              <modelVersion>4.0.0</modelVersion>
+
+              <groupId>com.k2fsa.sherpa.onnx</groupId>
+              <artifactId>sherpa-onnx-maven-example</artifactId>
+              <version>2.0.1</version>
+              <packaging>jar</packaging>
+
+              <name>sherpa-onnx Maven Example</name>
+              <description>Example project demonstrating how to use sherpa-onnx via Maven</description>
+
+              <repositories>
+                  <repository>
+                      <id>jitpack.io</id>
+                      <url>https://jitpack.io</url>
+                  </repository>
+              </repositories>
+
+              <dependencies>
+                  <dependency>
+                      <groupId>com.github.k2-fsa</groupId>
+                      <artifactId>sherpa-onnx</artifactId>
+                      <version>2.0.1</version>
+                  </dependency>
+              </dependencies>
+
+              <build>
+                  <plugins>
+                      <plugin>
+                          <groupId>org.apache.maven.plugins</groupId>
+                          <artifactId>maven-compiler-plugin</artifactId>
+                          <version>3.11.0</version>
+                          <configuration>
+                              <source>1.8</source>
+                              <target>1.8</target>
+                          </configuration>
+                      </plugin>
+                      <plugin>
+                          <groupId>org.apache.maven.plugins</groupId>
+                          <artifactId>maven-jar-plugin</artifactId>
+                          <version>3.3.0</version>
+                          <configuration>
+                              <archive>
+                                  <manifest>
+                                      <mainClass>com.k2fsa.sherpa.onnx.example.VersionTest</mainClass>
+                                  </manifest>
+                              </archive>
+                          </configuration>
+                      </plugin>
+                      <plugin>
+                          <groupId>org.apache.maven.plugins</groupId>
+                          <artifactId>maven-shade-plugin</artifactId>
+                          <version>3.5.1</version>
+                          <executions>
+                              <execution>
+                                  <phase>package</phase>
+                                  <goals>
+                                      <goal>shade</goal>
+                                  </goals>
+                              </execution>
+                          </executions>
+                      </plugin>
+                  </plugins>
+              </build>
+          </project>
+          EOF
+
+      - name: Show pom.xml for debugging
+        shell: bash
+        run: |
+          cat java-api-examples/maven-examples/pom.xml
+
+      - name: Build maven example (Approach 1)
+        shell: bash
+        run: |
+          cd java-api-examples/maven-examples
+          mvn package
+
+          ls -lh target/*.jar
+
+      - name: Verify jar contents
+        shell: bash
+        run: |
+          cd java-api-examples/maven-examples
+
+          echo "=== Jar size ==="
+          ls -lh target/sherpa-onnx-maven-example-2.0.1.jar
+
+          echo "=== Native libs in jar ==="
+          unzip -l target/sherpa-onnx-maven-example-2.0.1.jar | grep -E "\.so$|\.dylib$|\.dll$" || true
+
+      - name: Run maven example
+        shell: bash
+        run: |
+          cd java-api-examples/maven-examples
+          java -jar target/sherpa-onnx-maven-example-2.0.1.jar
+
+  run_gradle_test:
+    runs-on: ${{ matrix.os }}
+    name: gradle-${{ matrix.os }} ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: "x64"
+            native_lib: linux-x64
+
+          - os: ubuntu-24.04-arm
+            arch: "arm64"
+            native_lib: linux-aarch64
+
+          - os: macos-latest
+            arch: "arm64"
+            native_lib: osx-aarch64
+
+          - os: macos-15-intel
+            arch: "x64"
+            native_lib: osx-x64
+
+          - os: windows-2022
+            arch: "x64"
+            native_lib: win-x64
+
+          - os: windows-11-arm
+            arch: "arm64"
+            native_lib: win-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Show java version
+        shell: bash
+        run: |
+          java --version
+          javac --version
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Update build.gradle for this platform
+        shell: bash
+        run: |
+          cd java-api-examples/gradle-examples
+
+          native_lib=${{ matrix.native_lib }}
+
+          python3 << 'PYEOF'
+          import re
+
+          native_lib = "${{ matrix.native_lib }}"
+          target_artifact = f"sherpa-onnx-native-lib-{native_lib}"
+
+          with open("build.gradle", "r") as f:
+              content = f.read()
+
+          # Comment out all active native lib lines
+          def comment_active_lines(content):
+              lines = content.split('\n')
+              result = []
+              for line in lines:
+                  stripped = line.strip()
+                  if stripped.startswith("implementation 'com.github.k2-fsa.sherpa-onnx:sherpa-onnx-native-lib-"):
+                      if target_artifact in stripped:
+                          # This is our target - ensure it's uncommented
+                          result.append(line)
+                      else:
+                          # Comment it out
+                          result.append('    // ' + stripped)
+                  else:
+                      result.append(line)
+              return '\n'.join(result)
+
+          # Uncomment the target line if it's commented
+          def uncomment_target(content):
+              lines = content.split('\n')
+              result = []
+              for line in lines:
+                  stripped = line.strip()
+                  if stripped.startswith("// implementation 'com.github.k2-fsa.sherpa-onnx:sherpa-onnx-native-lib-"):
+                      if target_artifact in stripped:
+                          # Uncomment this line
+                          result.append('    ' + stripped[3:])
+                      else:
+                          result.append(line)
+                  else:
+                      result.append(line)
+              return '\n'.join(result)
+
+          content = comment_active_lines(content)
+          content = uncomment_target(content)
+
+          with open("build.gradle", "w") as f:
+              f.write(content)
+          PYEOF
+
+      - name: Show build.gradle for debugging
+        shell: bash
+        run: |
+          cat java-api-examples/gradle-examples/build.gradle
+
+      - name: Build gradle example
+        shell: bash
+        run: |
+          cd java-api-examples/gradle-examples
+          ./gradlew build --info
+
+          ls -lh build/libs/*.jar
+
+      - name: Verify jar contents
+        shell: bash
+        run: |
+          cd java-api-examples/gradle-examples
+
+          echo "=== Jar size ==="
+          ls -lh build/libs/sherpa-onnx-gradle-example.jar
+
+          echo "=== Native libs in jar ==="
+          unzip -l build/libs/sherpa-onnx-gradle-example.jar | grep -E "\.so$|\.dylib$|\.dll$" || true
+
+      - name: Run gradle example
+        shell: bash
+        run: |
+          cd java-api-examples/gradle-examples
+          ./gradlew run --info
+
+  run_gradle_test_approach1:
+    runs-on: ${{ matrix.os }}
+    name: gradle-approach1-${{ matrix.os }} ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: "x64"
+
+          - os: ubuntu-24.04-arm
+            arch: "arm64"
+
+          - os: macos-latest
+            arch: "arm64"
+
+          - os: macos-15-intel
+            arch: "x64"
+
+          - os: windows-2022
+            arch: "x64"
+
+          - os: windows-11-arm
+            arch: "arm64"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Show java version
+        shell: bash
+        run: |
+          java --version
+          javac --version
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Write build.gradle for Approach 1
+        shell: bash
+        run: |
+          cd java-api-examples/gradle-examples
+
+          cat > build.gradle << 'EOF'
+          plugins {
+              id 'application'
+              id 'java'
+          }
+
+          application {
+              mainClass = 'com.k2fsa.sherpa.onnx.example.VersionTest'
+          }
+
+          repositories {
+              mavenCentral()
+              maven { url 'https://jitpack.io' }
+          }
+
+          dependencies {
+              implementation 'com.github.k2-fsa:sherpa-onnx:2.0.1'
+          }
+
+          java {
+              sourceCompatibility = JavaVersion.VERSION_1_8
+              targetCompatibility = JavaVersion.VERSION_1_8
+          }
+
+          tasks.named('jar') {
+              manifest {
+                  attributes(
+                      'Main-Class': 'com.k2fsa.sherpa.onnx.example.VersionTest'
+                  )
+              }
+              duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+              from {
+                  configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+              }
+          }
+          EOF
+
+      - name: Show build.gradle for debugging
+        shell: bash
+        run: |
+          cat java-api-examples/gradle-examples/build.gradle
+
+      - name: Build gradle example (Approach 1)
+        shell: bash
+        run: |
+          cd java-api-examples/gradle-examples
+          ./gradlew build --info
+
+          ls -lh build/libs/*.jar
+
+      - name: Verify jar contents
+        shell: bash
+        run: |
+          cd java-api-examples/gradle-examples
+
+          echo "=== Jar size ==="
+          ls -lh build/libs/sherpa-onnx-gradle-example.jar
+
+          echo "=== Native libs in jar ==="
+          unzip -l build/libs/sherpa-onnx-gradle-example.jar | grep -E "\.so$|\.dylib$|\.dll$" || true
+
+      - name: Run gradle example
+        shell: bash
+        run: |
+          cd java-api-examples/gradle-examples
+          ./gradlew run --info
+
+  run_gradle_kts_test:
+    runs-on: ${{ matrix.os }}
+    name: gradle-kts-${{ matrix.os }} ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: "x64"
+
+          - os: ubuntu-24.04-arm
+            arch: "arm64"
+
+          - os: macos-latest
+            arch: "arm64"
+
+          - os: macos-15-intel
+            arch: "x64"
+
+          - os: windows-2022
+            arch: "x64"
+
+          - os: windows-11-arm
+            arch: "arm64"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Show java version
+        shell: bash
+        run: |
+          java --version
+          javac --version
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Show build.gradle.kts for debugging
+        shell: bash
+        run: |
+          cat java-api-examples/gradle-kts-examples/build.gradle.kts
+
+      - name: Build gradle kts example
+        shell: bash
+        run: |
+          cd java-api-examples/gradle-kts-examples
+          ./gradlew build --info
+
+          ls -lh build/libs/*.jar
+
+      - name: Verify jar contents
+        shell: bash
+        run: |
+          cd java-api-examples/gradle-kts-examples
+
+          echo "=== Jar size ==="
+          ls -lh build/libs/sherpa-onnx-gradle-kts-example.jar
+
+          echo "=== Native libs in jar ==="
+          unzip -l build/libs/sherpa-onnx-gradle-kts-example.jar | grep -E "\.so$|\.dylib$|\.dll$" || true
+
+      - name: Run gradle kts example
+        shell: bash
+        run: |
+          cd java-api-examples/gradle-kts-examples
+          ./gradlew run --info

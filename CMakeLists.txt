@@ -7,6 +7,15 @@ cmake_minimum_required(VERSION 3.15 FATAL_ERROR)
 # https://cmake.org/cmake/help/latest/prop_tgt/MSVC_RUNTIME_LIBRARY.html
 cmake_policy(SET CMP0091 NEW)
 
+if(POLICY CMP0169)
+  cmake_policy(SET CMP0169 OLD)
+  set(CMAKE_POLICY_DEFAULT_CMP0169 OLD)
+endif()
+
+if(POLICY CMP0177)
+  cmake_policy(SET CMP0177 NEW)
+endif()
+
 message(STATUS "CMake version: ${CMAKE_VERSION}")
 
 set(CMAKE_OSX_DEPLOYMENT_TARGET "10.14" CACHE STRING "Minimum OS X deployment version. Used only for macOS")
@@ -19,7 +28,7 @@ project(sherpa-onnx)
 # Remember to update
 # ./CHANGELOG.md
 # ./new-release.sh
-set(SHERPA_ONNX_VERSION "1.12.29")
+set(SHERPA_ONNX_VERSION "2.0.1")
 
 # Disable warning about
 #
@@ -71,9 +80,9 @@ option(SHERPA_ONNX_ENABLE_TESTS "Whether to build tests" OFF)
 option(SHERPA_ONNX_ENABLE_CHECK "Whether to build with assert" OFF)
 option(BUILD_SHARED_LIBS "Whether to build shared libraries" OFF)
 option(SHERPA_ONNX_ENABLE_PORTAUDIO "Whether to build with portaudio" ON)
-option(SHERPA_ONNX_ENABLE_JNI "Whether to build JNI internface" OFF)
+option(SHERPA_ONNX_ENABLE_JNI "Whether to build JNI interface" OFF)
 option(SHERPA_ONNX_ENABLE_C_API "Whether to build C API" ON)
-option(SHERPA_ONNX_ENABLE_WEBSOCKET "Whether to build webscoket server/client" ON)
+option(SHERPA_ONNX_ENABLE_WEBSOCKET "Whether to build websocket server/client" ON)
 option(SHERPA_ONNX_ENABLE_GPU "Enable ONNX Runtime GPU support" OFF)
 option(SHERPA_ONNX_ENABLE_DIRECTML "Enable ONNX Runtime DirectML support" OFF)
 option(SHERPA_ONNX_LINK_D3D "Whether static ONNX runtime lib with DML" OFF)
@@ -86,6 +95,7 @@ option(SHERPA_ONNX_ENABLE_WASM_KWS "Whether to enable WASM for KWS" OFF)
 option(SHERPA_ONNX_ENABLE_WASM_VAD "Whether to enable WASM for VAD" OFF)
 option(SHERPA_ONNX_ENABLE_WASM_VAD_ASR "Whether to enable WASM for VAD+ASR" OFF)
 option(SHERPA_ONNX_ENABLE_WASM_NODEJS "Whether to enable WASM for NodeJS" OFF)
+option(SHERPA_ONNX_ENABLE_WASM_WEB "Whether to enable WASM for Web browser" OFF)
 option(SHERPA_ONNX_ENABLE_WASM_SPEECH_ENHANCEMENT "Whether to enable WASM for speech enhancement" OFF)
 option(SHERPA_ONNX_ENABLE_BINARY "Whether to build binaries" ${SUGGEST_BUILD_BINARIES})
 option(SHERPA_ONNX_ENABLE_TTS "Whether to build TTS related code" ON)
@@ -156,7 +166,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
-if(NOT WIN32)
+if(UNIX)
   set(CMAKE_SKIP_BUILD_RPATH FALSE)
   set(BUILD_RPATH_USE_ORIGIN TRUE)
   set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
@@ -168,7 +178,7 @@ else()
   set(SHERPA_ONNX_RPATH_ORIGIN "@loader_path")
 endif()
 
-if(NOT WIN32)
+if(UNIX)
   set(CMAKE_INSTALL_RPATH ${SHERPA_ONNX_RPATH_ORIGIN})
   set(CMAKE_BUILD_RPATH ${SHERPA_ONNX_RPATH_ORIGIN})
 endif()
@@ -177,6 +187,8 @@ if(NOT CMAKE_BUILD_TYPE)
   message(STATUS "No CMAKE_BUILD_TYPE given, default to Release")
   set(CMAKE_BUILD_TYPE Release)
 endif()
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "")
 
 if(DEFINED ANDROID_ABI AND NOT SHERPA_ONNX_ENABLE_JNI AND NOT SHERPA_ONNX_ENABLE_C_API)
   message(STATUS "Set SHERPA_ONNX_ENABLE_JNI to ON for Android")
@@ -244,6 +256,7 @@ message(STATUS "SHERPA_ONNX_ENABLE_WASM_KWS ${SHERPA_ONNX_ENABLE_WASM_KWS}")
 message(STATUS "SHERPA_ONNX_ENABLE_WASM_VAD ${SHERPA_ONNX_ENABLE_WASM_VAD}")
 message(STATUS "SHERPA_ONNX_ENABLE_WASM_VAD_ASR ${SHERPA_ONNX_ENABLE_WASM_VAD_ASR}")
 message(STATUS "SHERPA_ONNX_ENABLE_WASM_NODEJS ${SHERPA_ONNX_ENABLE_WASM_NODEJS}")
+message(STATUS "SHERPA_ONNX_ENABLE_WASM_WEB ${SHERPA_ONNX_ENABLE_WASM_WEB}")
 message(STATUS "SHERPA_ONNX_ENABLE_WASM_SPEECH_ENHANCEMENT ${SHERPA_ONNX_ENABLE_WASM_SPEECH_ENHANCEMENT}")
 message(STATUS "SHERPA_ONNX_ENABLE_BINARY ${SHERPA_ONNX_ENABLE_BINARY}")
 message(STATUS "SHERPA_ONNX_ENABLE_TTS ${SHERPA_ONNX_ENABLE_TTS}")
@@ -267,6 +280,11 @@ endif()
 if(BUILD_SHARED_LIBS OR SHERPA_ONNX_ENABLE_JNI)
   set(CMAKE_CXX_VISIBILITY_PRESET hidden)
   set(CMAKE_VISIBILITY_INLINES_HIDDEN 1)
+endif()
+
+# Rust on Linux links static sherpa-onnx archives into PIE executables by
+# default, so static objects need PIC as well.
+if(NOT WIN32)
   set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 endif()
 
@@ -342,6 +360,12 @@ if(SHERPA_ONNX_ENABLE_WASM_NODEJS)
     message(FATAL_ERROR "Please set SHERPA_ONNX_ENABLE_WASM to ON if you enable WASM for NodeJS")
   endif()
   add_definitions(-DSHERPA_ONNX_ENABLE_WASM_KWS=1)
+endif()
+
+if(SHERPA_ONNX_ENABLE_WASM_WEB)
+  if(NOT SHERPA_ONNX_ENABLE_WASM)
+    message(FATAL_ERROR "Please set SHERPA_ONNX_ENABLE_WASM to ON if you enable WASM for Web")
+  endif()
 endif()
 
 if(SHERPA_ONNX_ENABLE_WASM)
@@ -543,7 +567,12 @@ if(NOT BUILD_SHARED_LIBS AND CMAKE_SYSTEM_NAME STREQUAL Linux)
   endif()
 endif()
 
+if(SHERPA_ONNX_ENABLE_PYTHON)
+  include(pybind11)
+endif()
+
 include(kaldi-native-fbank)
+include(utf8proc)
 include(kaldi-decoder)
 include(onnxruntime)
 include(simple-sentencepiece)
@@ -554,10 +583,6 @@ if(SHERPA_ONNX_ENABLE_PORTAUDIO AND SHERPA_ONNX_ENABLE_BINARY)
   # portaudio is used only in building demo binaries and the sherpa-onnx-core
   # library does not depend on it.
   include(portaudio)
-endif()
-
-if(SHERPA_ONNX_ENABLE_PYTHON)
-  include(pybind11)
 endif()
 
 if(SHERPA_ONNX_ENABLE_TESTS)
@@ -571,13 +596,6 @@ if(SHERPA_ONNX_ENABLE_WEBSOCKET)
 endif()
 
 include(json)
-
-if(SHERPA_ONNX_ENABLE_TTS)
-  include(espeak-ng-for-piper)
-  set(ESPEAK_NG_DIR ${espeak_ng_SOURCE_DIR})
-  message(STATUS "ESPEAK_NG_DIR: ${ESPEAK_NG_DIR}")
-  include(piper-phonemize)
-endif()
 
 if(SHERPA_ONNX_ENABLE_SPEAKER_DIARIZATION)
   include(hclust-cpp)
@@ -613,7 +631,6 @@ endif()
 add_subdirectory(sherpa-onnx)
 
 if(SHERPA_ONNX_ENABLE_C_API AND SHERPA_ONNX_ENABLE_BINARY AND SHERPA_ONNX_BUILD_C_API_EXAMPLES)
-  set(SHERPA_ONNX_PKG_WITH_CARGS "-lcargs")
   add_subdirectory(c-api-examples)
   add_subdirectory(cxx-api-examples)
 endif()
@@ -649,6 +666,6 @@ install(
   FILES
     ${PROJECT_BINARY_DIR}/sherpa-onnx.pc
   DESTINATION
-    ./
+    .
 )
 message(STATUS "CMAKE_CXX_FLAGS: ${CMAKE_CXX_FLAGS}")

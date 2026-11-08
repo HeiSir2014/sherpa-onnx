@@ -32,7 +32,9 @@ void OfflineTtsKokoroModelConfig::Register(ParseOptions *po) {
       "You can pass multiple files, separated by ','. Example: "
       "./lexicon-us-en.txt,./lexicon-zh.txt");
   po->Register("kokoro-data-dir", &data_dir,
-               "Path to the directory containing dict for espeak-ng.");
+               "Deprecated. Ignored since v2.0.0: espeak-ng is no longer used. "
+               "Use --kokoro-lexicon or "
+               "GenerationConfig.phoneme_codepoints instead.");
   po->Register("kokoro-dict-dir", &dict_dir,
                "Not used. You don't need to provide a value for it");
   po->Register("kokoro-length-scale", &length_scale,
@@ -60,6 +62,16 @@ bool OfflineTtsKokoroModelConfig::Validate() const {
     return false;
   }
 
+  if (voices.empty()) {
+    SHERPA_ONNX_LOGE("Please provide --kokoro-voices");
+    return false;
+  }
+
+  if (!FileExists(voices)) {
+    SHERPA_ONNX_LOGE("--kokoro-voices: '%s' does not exist", voices.c_str());
+    return false;
+  }
+
   if (!lexicon.empty()) {
     std::vector<std::string> files;
     SplitStringToVector(lexicon, ",", false, &files);
@@ -73,37 +85,19 @@ bool OfflineTtsKokoroModelConfig::Validate() const {
     }
   }
 
-  if (data_dir.empty()) {
-    SHERPA_ONNX_LOGE("Please provide --kokoro-data-dir");
-    return false;
+  if (!data_dir.empty()) {
+    SHERPA_ONNX_LOGE(
+        "WARNING: --kokoro-data-dir is deprecated and ignored in "
+        "sherpa-onnx >= v2.0.0. Please use --kokoro-lexicon or "
+        "GenerationConfig.phoneme_codepoints with an external "
+        "phonemizer (e.g. piper_phonemize) instead.");
   }
 
-  if (!FileExists(data_dir + "/phontab")) {
+  if (!lang.empty()) {
     SHERPA_ONNX_LOGE(
-        "'%s/phontab' does not exist. Please check --kokoro-data-dir",
-        data_dir.c_str());
-    return false;
-  }
-
-  if (!FileExists(data_dir + "/phonindex")) {
-    SHERPA_ONNX_LOGE(
-        "'%s/phonindex' does not exist. Please check --kokoro-data-dir",
-        data_dir.c_str());
-    return false;
-  }
-
-  if (!FileExists(data_dir + "/phondata")) {
-    SHERPA_ONNX_LOGE(
-        "'%s/phondata' does not exist. Please check --kokoro-data-dir",
-        data_dir.c_str());
-    return false;
-  }
-
-  if (!FileExists(data_dir + "/intonations")) {
-    SHERPA_ONNX_LOGE(
-        "'%s/intonations' does not exist. Please check --kokoro-data-dir",
-        data_dir.c_str());
-    return false;
+        "WARNING: --kokoro-lang is deprecated and ignored in "
+        "sherpa-onnx >= v2.0.0. espeak-ng is no longer used. "
+        "Language is determined by the lexicon files you provide.");
   }
 
   if (!dict_dir.empty()) {

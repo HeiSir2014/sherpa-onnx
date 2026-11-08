@@ -89,7 +89,7 @@ class HomophoneReplacer::Impl {
  public:
   explicit Impl(const HomophoneReplacerConfig &config) : config_(config) {
     {
-      std::ifstream is(config.lexicon);
+      auto is = OpenInputFile(config.lexicon);
       InitLexicon(is);
     }
 
@@ -269,7 +269,7 @@ class HomophoneReplacer::Impl {
         if (p.back() > '4') {
           p.push_back('1');
         }
-        pron.append(std::move(p));
+        pron.append(p);
       }
 
       if (pron.empty()) {

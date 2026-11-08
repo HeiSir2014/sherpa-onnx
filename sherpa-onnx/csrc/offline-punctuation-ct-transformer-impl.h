@@ -11,11 +11,6 @@
 #include <utility>
 #include <vector>
 
-#if __ANDROID_API__ >= 9
-#include "android/asset_manager.h"
-#include "android/asset_manager_jni.h"
-#endif
-
 #include "sherpa-onnx/csrc/macros.h"
 #include "sherpa-onnx/csrc/math.h"
 #include "sherpa-onnx/csrc/offline-ct-transformer-model.h"
@@ -31,11 +26,10 @@ class OfflinePunctuationCtTransformerImpl : public OfflinePunctuationImpl {
       const OfflinePunctuationConfig &config)
       : config_(config), model_(config.model) {}
 
-#if __ANDROID_API__ >= 9
-  OfflinePunctuationCtTransformerImpl(AAssetManager *mgr,
+  template <typename Manager>
+  OfflinePunctuationCtTransformerImpl(Manager *mgr,
                                       const OfflinePunctuationConfig &config)
       : config_(config), model_(mgr, config.model) {}
-#endif
 
   std::string AddPunctuation(const std::string &text) const override {
     if (text.empty()) {
@@ -161,7 +155,7 @@ class OfflinePunctuationCtTransformerImpl : public OfflinePunctuationImpl {
       }
       std::string &w = tokens[i];
       if (i > 0 && !(words_punct.back()[0] & 0x80) && !(w[0] & 0x80)) {
-        words_punct.push_back(" ");
+        words_punct.emplace_back(" ");
       }
       words_punct.push_back(std::move(w));
 

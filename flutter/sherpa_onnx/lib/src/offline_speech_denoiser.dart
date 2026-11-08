@@ -4,123 +4,37 @@ import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
 import './sherpa_onnx_bindings.dart';
+import './offline_speech_denoiser_config.dart';
 
-class OfflineSpeechDenoiserGtcrnModelConfig {
-  const OfflineSpeechDenoiserGtcrnModelConfig({
-    this.model = '',
-  });
+export './offline_speech_denoiser_config.dart';
 
-  factory OfflineSpeechDenoiserGtcrnModelConfig.fromJson(
-      Map<String, dynamic> json) {
-    return OfflineSpeechDenoiserGtcrnModelConfig(
-      model: json['model'] as String? ?? '',
-    );
-  }
-
-  @override
-  String toString() {
-    return 'OfflineSpeechDenoiserGtcrnModelConfig(model: $model)';
-  }
-
-  Map<String, dynamic> toJson() => {
-        'model': model,
-      };
-
-  final String model;
-}
-
-class OfflineSpeechDenoiserModelConfig {
-  const OfflineSpeechDenoiserModelConfig({
-    this.gtcrn = const OfflineSpeechDenoiserGtcrnModelConfig(),
-    this.numThreads = 1,
-    this.debug = true,
-    this.provider = 'cpu',
-  });
-
-  factory OfflineSpeechDenoiserModelConfig.fromJson(Map<String, dynamic> json) {
-    return OfflineSpeechDenoiserModelConfig(
-      gtcrn: json['gtcrn'] != null
-          ? OfflineSpeechDenoiserGtcrnModelConfig.fromJson(
-              json['gtcrn'] as Map<String, dynamic>)
-          : const OfflineSpeechDenoiserGtcrnModelConfig(),
-      numThreads: json['numThreads'] as int? ?? 1,
-      debug: json['debug'] as bool? ?? true,
-      provider: json['provider'] as String? ?? 'cpu',
-    );
-  }
-
-  @override
-  String toString() {
-    return 'OfflineSpeechDenoiserModelConfig(gtcrn: $gtcrn, numThreads: $numThreads, debug: $debug, provider: $provider)';
-  }
-
-  Map<String, dynamic> toJson() => {
-        'gtcrn': gtcrn.toJson(),
-        'numThreads': numThreads,
-        'debug': debug,
-        'provider': provider,
-      };
-
-  final OfflineSpeechDenoiserGtcrnModelConfig gtcrn;
-  final int numThreads;
-  final bool debug;
-  final String provider;
-}
-
-class OfflineSpeechDenoiserConfig {
-  const OfflineSpeechDenoiserConfig({
-    this.model = const OfflineSpeechDenoiserModelConfig(),
-  });
-
-  factory OfflineSpeechDenoiserConfig.fromJson(Map<String, dynamic> json) {
-    return OfflineSpeechDenoiserConfig(
-      model: json['model'] != null
-          ? OfflineSpeechDenoiserModelConfig.fromJson(
-              json['model'] as Map<String, dynamic>)
-          : const OfflineSpeechDenoiserModelConfig(),
-    );
-  }
-
-  @override
-  String toString() {
-    return 'OfflineSpeechDenoiserConfig(model: $model)';
-  }
-
-  Map<String, dynamic> toJson() => {
-        'model': model.toJson(),
-      };
-
-  final OfflineSpeechDenoiserModelConfig model;
-}
-
-class DenoisedAudio {
-  DenoisedAudio({
-    required this.samples,
-    required this.sampleRate,
-  });
-
-  final Float32List samples;
-  final int sampleRate;
-}
-
+/// Offline speech denoiser.
 class OfflineSpeechDenoiser {
   OfflineSpeechDenoiser.fromPtr({required this.ptr, required this.config});
 
   OfflineSpeechDenoiser._({required this.ptr, required this.config});
 
-  /// The user is responsible to call the OfflineSpeechDenoiser.free()
-  /// method of the returned instance to avoid memory leak.
+  /// Create an offline denoiser from [config].
   factory OfflineSpeechDenoiser(OfflineSpeechDenoiserConfig config) {
+    if (SherpaOnnxBindings.sherpaOnnxCreateOfflineSpeechDenoiser == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
     final c = calloc<SherpaOnnxOfflineSpeechDenoiserConfig>();
     c.ref.model.gtcrn.model = config.model.gtcrn.model.toNativeUtf8();
+    c.ref.model.dpdfnet.model = config.model.dpdfnet.model.toNativeUtf8();
+    c.ref.model.dpdfnet.attenuationLimitDb =
+        config.model.dpdfnet.attenuationLimitDb;
+    c.ref.model.voxlock.enrollModel =
+        config.model.voxlock.enrollModel.toNativeUtf8();
+    c.ref.model.voxlock.chunkModel =
+        config.model.voxlock.chunkModel.toNativeUtf8();
+    c.ref.model.voxlock.voiceSample =
+        config.model.voxlock.voiceSample.toNativeUtf8();
 
     c.ref.model.numThreads = config.model.numThreads;
     c.ref.model.debug = config.model.debug ? 1 : 0;
     c.ref.model.provider = config.model.provider.toNativeUtf8();
-
-    if (SherpaOnnxBindings.sherpaOnnxCreateOfflineSpeechDenoiser == null) {
-      throw Exception("Please initialize sherpa-onnx first");
-    }
 
     final ptr =
         SherpaOnnxBindings.sherpaOnnxCreateOfflineSpeechDenoiser?.call(c) ??
@@ -128,6 +42,10 @@ class OfflineSpeechDenoiser {
 
     calloc.free(c.ref.model.provider);
     calloc.free(c.ref.model.gtcrn.model);
+    calloc.free(c.ref.model.dpdfnet.model);
+    calloc.free(c.ref.model.voxlock.enrollModel);
+    calloc.free(c.ref.model.voxlock.chunkModel);
+    calloc.free(c.ref.model.voxlock.voiceSample);
     calloc.free(c);
 
     if (ptr == nullptr) {
@@ -138,12 +56,30 @@ class OfflineSpeechDenoiser {
     return OfflineSpeechDenoiser._(ptr: ptr, config: config);
   }
 
+  /// Release the native denoiser.
   void free() {
+    if (SherpaOnnxBindings.sherpaOnnxDestroyOfflineSpeechDenoiser == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr) {
+      return;
+    }
+
     SherpaOnnxBindings.sherpaOnnxDestroyOfflineSpeechDenoiser?.call(ptr);
     ptr = nullptr;
   }
 
+  /// Denoise one chunk or a complete waveform.
   DenoisedAudio run({required Float32List samples, required int sampleRate}) {
+    if (SherpaOnnxBindings.sherpaOnnxOfflineSpeechDenoiserRun == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr) {
+      return DenoisedAudio(samples: Float32List(0), sampleRate: 0);
+    }
+
     final n = samples.length;
     final Pointer<Float> psamples = calloc<Float>(n);
 
@@ -160,19 +96,33 @@ class OfflineSpeechDenoiser {
       return DenoisedAudio(samples: Float32List(0), sampleRate: 0);
     }
 
-    final denoisedSamples = p.ref.samples.asTypedList(p.ref.n);
-    final denoisedSampleRate = p.ref.sampleRate;
-    final newSamples = Float32List.fromList(denoisedSamples);
+    final sampleRateOut = p.ref.sampleRate;
+    final nOut = p.ref.n;
+    Float32List newSamples = Float32List(0);
+    if (nOut > 0 && p.ref.samples != nullptr) {
+      newSamples = Float32List.fromList(p.ref.samples.asTypedList(nOut));
+    }
 
     SherpaOnnxBindings.sherpaOnnxDestroyDenoisedAudio?.call(p);
 
-    return DenoisedAudio(samples: newSamples, sampleRate: denoisedSampleRate);
+    return DenoisedAudio(samples: newSamples, sampleRate: sampleRateOut);
   }
 
-  int get sampleRate =>
-      SherpaOnnxBindings.sherpaOnnxOfflineSpeechDenoiserGetSampleRate
-          ?.call(ptr) ??
-      0;
+  /// Return the expected sample rate for this denoiser.
+  int get sampleRate {
+    if (SherpaOnnxBindings.sherpaOnnxOfflineSpeechDenoiserGetSampleRate ==
+        null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr) {
+      return 0;
+    }
+
+    return SherpaOnnxBindings.sherpaOnnxOfflineSpeechDenoiserGetSampleRate
+            ?.call(ptr) ??
+        0;
+  }
 
   Pointer<SherpaOnnxOfflineSpeechDenoiser> ptr;
   OfflineSpeechDenoiserConfig config;

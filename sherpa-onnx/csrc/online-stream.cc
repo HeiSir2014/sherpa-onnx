@@ -4,10 +4,13 @@
 #include "sherpa-onnx/csrc/online-stream.h"
 
 #include <memory>
+#include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "sherpa-onnx/csrc/features.h"
+#include "sherpa-onnx/csrc/text-utils.h"
 #include "sherpa-onnx/csrc/transducer-keyword-decoder.h"
 
 namespace sherpa_onnx {
@@ -19,49 +22,49 @@ class OnlineStream::Impl {
       : feat_extractor_(config), context_graph_(std::move(context_graph)) {}
 
   void AcceptWaveform(int32_t sampling_rate, const float *waveform, int32_t n) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     feat_extractor_.AcceptWaveform(sampling_rate, waveform, n);
   }
 
   void InputFinished() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     feat_extractor_.InputFinished();
   }
 
   int32_t NumFramesReady() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     return feat_extractor_.NumFramesReady() - start_frame_index_;
   }
 
   bool IsLastFrame(int32_t frame) const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     return feat_extractor_.IsLastFrame(frame);
   }
 
   std::vector<float> GetFrames(int32_t frame_index, int32_t n) const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     return feat_extractor_.GetFrames(frame_index + start_frame_index_, n);
   }
 
   void Reset() {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     // we don't reset the feature extractor
     start_frame_index_ += num_processed_frames_;
     num_processed_frames_ = 0;
   }
 
   int32_t &GetNumProcessedFrames() {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     return num_processed_frames_;
   }
 
   int32_t GetNumFramesSinceStart() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     return start_frame_index_;
   }
 
   int32_t &GetCurrentSegment() {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     return segment_;
   }
 
@@ -108,11 +111,31 @@ class OnlineStream::Impl {
 
   std::vector<Ort::Value> &GetStates() { return states_; }
 
-  void SetNeMoDecoderStates(std::vector<Ort::Value> decoder_states) {
-    decoder_states_ = std::move(decoder_states);
+  void SetQnnStates(std::vector<OnlineStreamStateTensor> states) {
+    qnn_states_ = std::move(states);
   }
 
-  std::vector<Ort::Value> &GetNeMoDecoderStates() { return decoder_states_; }
+  std::vector<OnlineStreamStateTensor> &GetQnnStates() { return qnn_states_; }
+
+  void SetQnnResult(const OnlineTransducerDecoderResultNoOrt &r) {
+    qnn_result_ = r;
+  }
+
+  OnlineTransducerDecoderResultNoOrt &GetQnnResult() { return qnn_result_; }
+
+  void SetNeMoDecoderStates(std::vector<Ort::Value> decoder_states) {
+    nemo_decoder_states_ = std::move(decoder_states);
+  }
+
+  void SetNeMoDecoderOut(Ort::Value decoder_out) {
+    nemo_decoder_out_ = std::move(decoder_out);
+  }
+
+  std::vector<Ort::Value> &GetNeMoDecoderStates() {
+    return nemo_decoder_states_;
+  }
+
+  Ort::Value &GetNeMoDecoderOut() { return nemo_decoder_out_; }
 
   const ContextGraphPtr &GetContextGraph() const { return context_graph_; }
 
@@ -126,6 +149,39 @@ class OnlineStream::Impl {
 
   std::vector<float> &GetParaformerAlphaCache() {
     return paraformer_alpha_cache_;
+  }
+
+  void SetOption(const std::string &key, const std::string &value) {
+    options_[key] = value;
+  }
+
+  bool HasOption(const std::string &key) const {
+    return options_.count(key) != 0;
+  }
+
+  const std::string &GetOption(const std::string &key) const {
+    auto it = options_.find(key);
+    if (it != options_.end()) {
+      return it->second;
+    }
+    static const std::string kEmpty;
+    return kEmpty;
+  }
+
+  int32_t GetOptionInt(const std::string &key, int32_t default_value) const {
+    auto it = options_.find(key);
+    if (it != options_.end()) {
+      return ToIntOrDefault(it->second, default_value);
+    }
+    return default_value;
+  }
+
+  float GetOptionFloat(const std::string &key, float default_value) const {
+    auto it = options_.find(key);
+    if (it != options_.end()) {
+      return ToFloatOrDefault(it->second, default_value);
+    }
+    return default_value;
   }
 
   void SetFasterDecoder(std::unique_ptr<kaldi_decoder::FasterDecoder> decoder) {
@@ -154,11 +210,20 @@ class OnlineStream::Impl {
   TransducerKeywordResult empty_keyword_result_;
   OnlineCtcDecoderResult ctc_result_;
   std::vector<Ort::Value> states_;  // states for transducer or ctc models
-  std::vector<Ort::Value> decoder_states_;  // states for nemo transducer models
+  std::vector<OnlineStreamStateTensor> qnn_states_;
+
+  // states for nemo transducer models
+  std::vector<Ort::Value> nemo_decoder_states_;
+
+  // decoder out for nemo transducer models
+  Ort::Value nemo_decoder_out_{nullptr};
+
   std::vector<float> paraformer_feat_cache_;
   std::vector<float> paraformer_encoder_out_cache_;
   std::vector<float> paraformer_alpha_cache_;
   OnlineParaformerDecoderResult paraformer_result_;
+  OnlineTransducerDecoderResultNoOrt qnn_result_;
+  std::unordered_map<std::string, std::string> options_;
   std::unique_ptr<kaldi_decoder::FasterDecoder> faster_decoder_;
   int32_t faster_decoder_processed_frames_ = 0;
 };
@@ -244,13 +309,37 @@ std::vector<Ort::Value> &OnlineStream::GetStates() {
   return impl_->GetStates();
 }
 
+void OnlineStream::SetQnnStates(std::vector<OnlineStreamStateTensor> states) {
+  impl_->SetQnnStates(std::move(states));
+}
+
+std::vector<OnlineStreamStateTensor> &OnlineStream::GetQnnStates() {
+  return impl_->GetQnnStates();
+}
+
+void OnlineStream::SetQnnResult(const OnlineTransducerDecoderResultNoOrt &r) {
+  impl_->SetQnnResult(r);
+}
+
+OnlineTransducerDecoderResultNoOrt &OnlineStream::GetQnnResult() {
+  return impl_->GetQnnResult();
+}
+
 void OnlineStream::SetNeMoDecoderStates(
     std::vector<Ort::Value> decoder_states) {
   return impl_->SetNeMoDecoderStates(std::move(decoder_states));
 }
 
+void OnlineStream::SetNeMoDecoderOut(Ort::Value decoder_out) {
+  return impl_->SetNeMoDecoderOut(std::move(decoder_out));
+}
+
 std::vector<Ort::Value> &OnlineStream::GetNeMoDecoderStates() {
   return impl_->GetNeMoDecoderStates();
+}
+
+Ort::Value &OnlineStream::GetNeMoDecoderOut() {
+  return impl_->GetNeMoDecoderOut();
 }
 
 const ContextGraphPtr &OnlineStream::GetContextGraph() const {
@@ -280,6 +369,28 @@ std::vector<float> &OnlineStream::GetParaformerEncoderOutCache() {
 
 std::vector<float> &OnlineStream::GetParaformerAlphaCache() {
   return impl_->GetParaformerAlphaCache();
+}
+
+void OnlineStream::SetOption(const std::string &key, const std::string &value) {
+  impl_->SetOption(key, value);
+}
+
+bool OnlineStream::HasOption(const std::string &key) const {
+  return impl_->HasOption(key);
+}
+
+const std::string &OnlineStream::GetOption(const std::string &key) const {
+  return impl_->GetOption(key);
+}
+
+int32_t OnlineStream::GetOptionInt(const std::string &key,
+                                   int32_t default_value) const {
+  return impl_->GetOptionInt(key, default_value);
+}
+
+float OnlineStream::GetOptionFloat(const std::string &key,
+                                   float default_value) const {
+  return impl_->GetOptionFloat(key, default_value);
 }
 
 }  // namespace sherpa_onnx

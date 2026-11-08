@@ -43,7 +43,7 @@ jobs:
       - name: Install emsdk
         uses: mymindstorm/setup-emsdk@v14
         with:
-          version: 3.1.53
+          version: 4.0.23
           actions-cache-folder: 'emsdk-cache'
 
       - name: View emsdk version
@@ -93,7 +93,7 @@ jobs:
           file: ./*.tar.bz2
           # repo_name: k2-fsa/sherpa-onnx
           # repo_token: ${{ secrets.UPLOAD_GH_SHERPA_ONNX_TOKEN }}
-          # tag: v1.10.23
+          # tag: v2.0.1
 
       - name: Upload wasm files
         uses: actions/upload-artifact@v4

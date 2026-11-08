@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "Eigen/Dense"
+#include "sherpa-onnx/csrc/lfr.h"
 #include "sherpa-onnx/csrc/macros.h"
 #include "sherpa-onnx/csrc/offline-ctc-greedy-search-decoder.h"
 #include "sherpa-onnx/csrc/offline-model-config.h"
@@ -23,7 +24,7 @@
 
 namespace sherpa_onnx {
 
-OfflineRecognitionResult ConvertSenseVoiceResult(
+inline OfflineRecognitionResult ConvertSenseVoiceResult(
     const OfflineCtcDecoderResult &src, const SymbolTable &sym_table,
     int32_t frame_shift_ms, int32_t subsampling_factor,
     bool is_funasr_nano = false) {
@@ -51,7 +52,7 @@ OfflineRecognitionResult ConvertSenseVoiceResult(
     r.timestamps.push_back(time);
   }
 
-  r.words = std::move(src.words);
+  r.words = src.words;
 
   if (!is_funasr_nano) {
     // parse lang, emotion and event from tokens.
@@ -146,7 +147,8 @@ class OfflineRecognizerSenseVoiceImpl : public OfflineRecognizerImpl {
     for (int32_t i = 0; i != n; ++i) {
       std::vector<float> f = ss[i]->GetFrames();
 
-      f = ApplyLFR(f);
+      f = ApplyLfr(f, config_.feat_config.feature_dim, meta_data.window_size,
+                   meta_data.window_shift);
       ApplyCMVN(&f);
 
       int32_t num_frames = f.size() / feat_dim;
@@ -191,11 +193,16 @@ class OfflineRecognizerSenseVoiceImpl : public OfflineRecognizerImpl {
     std::vector<int32_t> language_array(n);
     std::fill(language_array.begin(), language_array.end(), language);
 
+    // Per-stream use_itn override via
+    // OfflineStream::SetOption("use_itn", "1"|"0").
+    // Falls back to model_config.sense_voice.use_itn when the option is absent.
+    int32_t default_use_itn = config_.model_config.sense_voice.use_itn;
     std::vector<int32_t> text_norm_array(n);
-    std::fill(text_norm_array.begin(), text_norm_array.end(),
-              config_.model_config.sense_voice.use_itn
-                  ? meta_data.with_itn_id
-                  : meta_data.without_itn_id);
+    for (int32_t i = 0; i != n; ++i) {
+      int32_t use_itn = ss[i]->GetOptionInt("use_itn", default_use_itn);
+      text_norm_array[i] =
+          use_itn ? meta_data.with_itn_id : meta_data.without_itn_id;
+    }
 
     Ort::Value language_tensor = Ort::Value::CreateTensor(
         memory_info, language_array.data(), n, features_length_shape.data(),
@@ -252,7 +259,8 @@ class OfflineRecognizerSenseVoiceImpl : public OfflineRecognizerImpl {
 
     int32_t feat_dim = config_.feat_config.feature_dim * meta_data.window_size;
     std::vector<float> f = s->GetFrames();
-    f = ApplyLFR(f);
+    f = ApplyLfr(f, config_.feat_config.feature_dim, meta_data.window_size,
+                 meta_data.window_shift);
 
     int32_t num_frames = f.size() / feat_dim;
     std::array<int64_t, 3> shape = {1, num_frames, feat_dim};
@@ -294,7 +302,8 @@ class OfflineRecognizerSenseVoiceImpl : public OfflineRecognizerImpl {
 
     int32_t feat_dim = config_.feat_config.feature_dim * meta_data.window_size;
     std::vector<float> f = s->GetFrames();
-    f = ApplyLFR(f);
+    f = ApplyLfr(f, config_.feat_config.feature_dim, meta_data.window_size,
+                 meta_data.window_shift);
     ApplyCMVN(&f);
     int32_t num_frames = f.size() / feat_dim;
     std::array<int64_t, 3> shape = {1, num_frames, feat_dim};
@@ -318,9 +327,13 @@ class OfflineRecognizerSenseVoiceImpl : public OfflineRecognizerImpl {
                        config_.model_config.sense_voice.language.c_str());
     }
 
-    int32_t text_norm = config_.model_config.sense_voice.use_itn
-                            ? meta_data.with_itn_id
-                            : meta_data.without_itn_id;
+    // Per-stream use_itn override via
+    // OfflineStream::SetOption("use_itn", "1"|"0").
+    // Falls back to model_config.sense_voice.use_itn when the option is absent.
+    int32_t use_itn =
+        s->GetOptionInt("use_itn", config_.model_config.sense_voice.use_itn);
+    int32_t text_norm =
+        use_itn ? meta_data.with_itn_id : meta_data.without_itn_id;
 
     Ort::Value language_tensor =
         Ort::Value::CreateTensor(memory_info, &language, 1, &scale_shape, 1);
@@ -372,33 +385,6 @@ class OfflineRecognizerSenseVoiceImpl : public OfflineRecognizerImpl {
     config_.feat_config.window_type = "hamming";
     config_.feat_config.high_freq = 0;
     config_.feat_config.snip_edges = true;
-  }
-
-  std::vector<float> ApplyLFR(const std::vector<float> &in) const {
-    const auto &meta_data = model_->GetModelMetadata();
-
-    int32_t lfr_window_size = meta_data.window_size;
-    int32_t lfr_window_shift = meta_data.window_shift;
-    int32_t in_feat_dim = config_.feat_config.feature_dim;
-
-    int32_t in_num_frames = in.size() / in_feat_dim;
-    int32_t out_num_frames =
-        (in_num_frames - lfr_window_size) / lfr_window_shift + 1;
-    int32_t out_feat_dim = in_feat_dim * lfr_window_size;
-
-    std::vector<float> out(out_num_frames * out_feat_dim);
-
-    const float *p_in = in.data();
-    float *p_out = out.data();
-
-    for (int32_t i = 0; i != out_num_frames; ++i) {
-      std::copy(p_in, p_in + out_feat_dim, p_out);
-
-      p_out += out_feat_dim;
-      p_in += lfr_window_shift * in_feat_dim;
-    }
-
-    return out;
   }
 
   void ApplyCMVN(std::vector<float> *v) const {

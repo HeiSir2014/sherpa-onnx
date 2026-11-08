@@ -26,7 +26,8 @@ offline-tts-c-api
 run-decode-file-c-api.sh
 sherpa-onnx-ffmpeg
 build-ios
-build-swift-macos
+build-macos
+build-macos-shared
 aa.sh
 client-2.sh
 ffmpeg-examples/run-3.sh
@@ -141,6 +142,11 @@ README-DEV.txt
 *.jit
 ##clion
 .idea
+
+## Eclipse and other IDEs
+.classpath
+.project
+.settings/
 sherpa-onnx-dolphin-base-ctc-multi-lang-int8-2025-04-02
 dict
 *.npz
@@ -148,6 +154,7 @@ voices.bin
 kitten-nano-en-v0_1-fp16
 *.egg-info
 *.jar
+!gradle-wrapper.jar
 vocab.json
 *.so
 sherpa-onnx-streaming-t-one-russian-2025-09-08
@@ -178,3 +185,32 @@ sherpa-onnx-fire-red-asr2-ctc-zh_en-int8-2026-02-25
 non-streaming-fire-red-asr-ctc-decode-files
 sherpa-onnx-moonshine-*-quantized-2026-02-27
 sherpa-onnx-supertonic-tts-int8-2026-03-06
+sherpa-onnx-supertonic-3-tts-int8-2026-05-11
+scripts/supertonic/assets/
+scripts/supertonic/calib_configs.json
+scripts/supertonic/helper.py
+token_scores.json
+sherpa-onnx-zipvoice-distill-int8-zh-en-emilia
+sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile
+sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8
+doxygen-docs
+sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25
+sherpa-onnx-spleeter-2stems-fp16
+sherpa-onnx-cohere-transcribe-14-lang-int8-2026-04-01
+espeak-ng-data
+# downloaded piper-phonemize wasm bundle for the TTS web demo; see
+# wasm/tts/assets/README.md
+wasm/tts/piper-phonemize/
+sherpa-onnx-nemo*
+kokoro-int8-en-v0_19
+vits-inflect-*-v2
+assets-2
+swiftpm
+.sherpa-onnx-xcframework-version
+lexicon*.txt
+tts.json
+*.bin
+compile_commands.json
+
+# APK signing keystore — lives only as the ANDROID_KEYSTORE_B64 Actions secret
+.github/scripts/android/ci-apk.keystore

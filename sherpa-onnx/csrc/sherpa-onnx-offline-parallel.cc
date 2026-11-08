@@ -13,7 +13,9 @@
 #include <utility>
 #include <vector>
 
+#include "sherpa-onnx/csrc/file-utils.h"
 #include "sherpa-onnx/csrc/offline-recognizer.h"
+#include "sherpa-onnx/csrc/macros.h"
 #include "sherpa-onnx/csrc/parse-options.h"
 #include "sherpa-onnx/csrc/wave-reader.h"
 
@@ -40,7 +42,7 @@ std::vector<std::vector<std::string>> SplitToBatches(
 
 std::vector<std::string> LoadScpFile(const std::string &wav_scp_path) {
   std::vector<std::string> wav_paths;
-  std::ifstream in(wav_scp_path);
+  auto in = sherpa_onnx::OpenInputFile(wav_scp_path);
   if (!in.is_open()) {
     fprintf(stderr, "Failed to open file: %s.\n", wav_scp_path.c_str());
     return wav_paths;
@@ -243,7 +245,7 @@ for a list of pre-trained models to download.
   if (po.NumArgs() < 1 && wav_scp.empty()) {
     fprintf(stderr, "Error: Please provide at least 1 wave file.\n\n");
     po.PrintUsage();
-    exit(EXIT_FAILURE);
+    SHERPA_ONNX_EXIT(EXIT_FAILURE);
   }
 
   fprintf(stderr, "%s\n", config.ToString().c_str());

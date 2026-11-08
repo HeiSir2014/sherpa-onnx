@@ -26,15 +26,22 @@
 #include "sherpa-onnx/csrc/online-transducer-modified-beam-search-decoder.h"
 #include "sherpa-onnx/csrc/onnx-utils.h"
 #include "sherpa-onnx/csrc/symbol-table.h"
+#include "sherpa-onnx/csrc/text-utils.h"
 #include "sherpa-onnx/csrc/utils.h"
 #include "ssentencepiece/csrc/ssentencepiece.h"
 
 namespace sherpa_onnx {
 
-OnlineRecognizerResult Convert(const OnlineTransducerDecoderResult &src,
-                               const SymbolTable &sym_table,
-                               float frame_shift_ms, int32_t subsampling_factor,
-                               int32_t segment, int32_t frames_since_start) {
+// remove_cjk_space: use 1 or 0. 0 means disable, non-zero means enable
+// removing spaces between CJK characters of scripts without word spacing.
+// See OnlineStream::SetOption("remove_cjk_space", ...).
+inline OnlineRecognizerResult Convert(const OnlineTransducerDecoderResult &src,
+                                      const SymbolTable &sym_table,
+                                      float frame_shift_ms,
+                                      int32_t subsampling_factor,
+                                      int32_t segment,
+                                      int32_t frames_since_start,
+                                      int32_t remove_cjk_space = 1) {
   OnlineRecognizerResult r;
   r.tokens.reserve(src.tokens.size());
   r.timestamps.reserve(src.tokens.size());
@@ -65,6 +72,10 @@ OnlineRecognizerResult Convert(const OnlineTransducerDecoderResult &src,
     text = sym_table.DecodeByteBpe(text);
   }
 
+  if (remove_cjk_space != 0) {
+    text = RemoveSpaceBetweenCjk(text);
+  }
+
   r.text = std::move(text);
 
   float frame_shift_s = frame_shift_ms / 1000. * subsampling_factor;
@@ -73,9 +84,10 @@ OnlineRecognizerResult Convert(const OnlineTransducerDecoderResult &src,
     r.timestamps.push_back(time);
   }
 
-  r.ys_probs = std::move(src.ys_probs);
-  r.lm_probs = std::move(src.lm_probs);
-  r.context_scores = std::move(src.context_scores);
+  r.ys_probs = src.ys_probs;
+  r.lm_probs = src.lm_probs;
+  r.context_scores = src.context_scores;
+  r.num_trailing_blanks = src.num_trailing_blanks;
 
   r.segment = segment;
   r.start_time = frames_since_start * frame_shift_ms / 1000.;
@@ -132,7 +144,7 @@ class OnlineRecognizerTransducerImpl : public OnlineRecognizerImpl {
     } else {
       SHERPA_ONNX_LOGE("Unsupported decoding method: %s",
                        config.decoding_method.c_str());
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
 
     if (model_->UseWhisperFeature()) {
@@ -187,7 +199,7 @@ class OnlineRecognizerTransducerImpl : public OnlineRecognizerImpl {
     } else {
       SHERPA_ONNX_LOGE("Unsupported decoding method: %s",
                        config.decoding_method.c_str());
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
 
     if (model_->UseWhisperFeature()) {
@@ -361,8 +373,12 @@ class OnlineRecognizerTransducerImpl : public OnlineRecognizerImpl {
     // TODO(fangjun): Remember to change these constants if needed
     int32_t frame_shift_ms = 10;
     int32_t subsampling_factor = 4;
+    // Per-stream option "remove_cjk_space": use 1 or 0. 0 means disable,
+    // non-zero (default 1) means enable removing spaces between CJK
+    // characters of scripts without word spacing.
     auto r = Convert(decoder_result, sym_, frame_shift_ms, subsampling_factor,
-                     s->GetCurrentSegment(), s->GetNumFramesSinceStart());
+                     s->GetCurrentSegment(), s->GetNumFramesSinceStart(),
+                     s->GetOptionInt("remove_cjk_space", 1));
     r.text = ApplyInverseTextNormalization(std::move(r.text));
     r.text = ApplyHomophoneReplacer(std::move(r.text));
     return r;
@@ -423,8 +439,8 @@ class OnlineRecognizerTransducerImpl : public OnlineRecognizerImpl {
     // but reset all contextual biasing graph states to root
     if (config_.decoding_method == "modified_beam_search" &&
         nullptr != s->GetContextGraph()) {
-      for (auto it = r.hyps.begin(); it != r.hyps.end(); ++it) {
-        it->second.context_state = s->GetContextGraph()->Root();
+      for (auto &hyp : r.hyps) {
+        hyp.second.context_state = s->GetContextGraph()->Root();
       }
     }
 
@@ -439,11 +455,11 @@ class OnlineRecognizerTransducerImpl : public OnlineRecognizerImpl {
   void InitHotwords() {
     // each line in hotwords_file contains space-separated words
 
-    std::ifstream is(config_.hotwords_file);
+    auto is = OpenInputFile(config_.hotwords_file);
     if (!is) {
       SHERPA_ONNX_LOGE("Open hotwords file failed: %s",
                        config_.hotwords_file.c_str());
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
 
     if (!EncodeHotwords(is, config_.model_config.modeling_unit, sym_,
@@ -467,7 +483,7 @@ class OnlineRecognizerTransducerImpl : public OnlineRecognizerImpl {
     if (!is) {
       SHERPA_ONNX_LOGE("Open hotwords file failed: %s",
                        config_.hotwords_file.c_str());
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
 
     if (!EncodeHotwords(is, config_.model_config.modeling_unit, sym_,
@@ -500,8 +516,8 @@ class OnlineRecognizerTransducerImpl : public OnlineRecognizerImpl {
     if (config_.decoding_method == "modified_beam_search" &&
         nullptr != stream->GetContextGraph()) {
       // r.hyps has only one element.
-      for (auto it = r.hyps.begin(); it != r.hyps.end(); ++it) {
-        it->second.context_state = stream->GetContextGraph()->Root();
+      for (auto &hyp : r.hyps) {
+        hyp.second.context_state = stream->GetContextGraph()->Root();
       }
     }
 

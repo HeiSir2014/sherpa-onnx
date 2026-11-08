@@ -14,6 +14,7 @@
 
 #include "Eigen/Dense"
 #include "sherpa-onnx/csrc/offline-fire-red-asr-decoder.h"
+#include "sherpa-onnx/csrc/macros.h"
 #include "sherpa-onnx/csrc/offline-fire-red-asr-greedy-search-decoder.h"
 #include "sherpa-onnx/csrc/offline-fire-red-asr-model.h"
 #include "sherpa-onnx/csrc/offline-model-config.h"
@@ -120,8 +121,11 @@ class OfflineRecognizerFireRedAsrImpl : public OfflineRecognizerImpl {
 
     auto cross_kv = model_->ForwardEncoder(std::move(x), std::move(x_len));
 
+    int32_t max_token_per_second = s->GetOptionInt("max_token_per_second", 8);
+
     auto results = decoder_->Decode(std::move(cross_kv.first),
-                                    std::move(cross_kv.second), num_frames);
+                                    std::move(cross_kv.second), num_frames,
+                                    max_token_per_second);
 
     auto r = Convert(results[0], symbol_table_);
 

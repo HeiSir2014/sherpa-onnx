@@ -60,8 +60,8 @@ Note that you need a non-streaming model for this script.
 
 ./python-api-examples/vad-with-non-streaming-asr.py  \
   --silero-vad-model=/path/to/silero_vad.onnx \
-  --sense-voice=./sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/model.onnx \
-  --tokens=./sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/tokens.txt \
+  --sense-voice=./sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/model.int8.onnx \
+  --tokens=./sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/tokens.txt \
   --num-threads=2
 
 Please refer to
@@ -113,6 +113,13 @@ def get_args():
         "--tokens",
         type=str,
         help="Path to tokens.txt",
+    )
+
+    parser.add_argument(
+        "--model-type",
+        default="transducer",
+        choices=["transducer", "nemo_transducer"],
+        help="Transducer family. Use nemo_transducer for Parakeet TDT and Orukeet.",
     )
 
     parser.add_argument(
@@ -321,6 +328,7 @@ def create_recognizer(args) -> sherpa_onnx.OfflineRecognizer:
             decoder=args.decoder,
             joiner=args.joiner,
             tokens=args.tokens,
+            model_type=args.model_type,
             num_threads=args.num_threads,
             sample_rate=args.sample_rate,
             feature_dim=args.feature_dim,

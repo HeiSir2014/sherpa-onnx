@@ -50,10 +50,11 @@ var
   Param: TPaStreamParameters;
   Stream: PPaStream;
   Wave: TSherpaOnnxWave;
+  GenerationConfig: TSherpaOnnxGenerationConfig;
 
 function GenerateCallback(
       Samples: pcfloat; N: cint32;
-      Arg: Pointer): cint; cdecl;
+      Progress: cfloat; Arg: Pointer): cint; cdecl;
 begin
   EnterCriticalSection(CriticalSection);
   try
@@ -117,7 +118,7 @@ begin
   Config.Model.Kitten.Model := './kitten-nano-en-v0_1-fp16/model.fp16.onnx';
   Config.Model.Kitten.Voices := './kitten-nano-en-v0_1-fp16/voices.bin';
   Config.Model.Kitten.Tokens := './kitten-nano-en-v0_1-fp16/tokens.txt';
-  Config.Model.Kitten.DataDir := './kitten-nano-en-v0_1-fp16/espeak-ng-data';
+  Config.Model.Kitten.Lexicon := './lexicon-en-us.txt';
   Config.Model.NumThreads := 2;
   Config.Model.Debug := False;
   Config.MaxNumSentences := 1;
@@ -207,8 +208,13 @@ begin
 
   Text := 'Friends fell out often because life was changing so fast. The easiest thing in the world was to lose touch with someone.';
 
-  Audio :=  Tts.Generate(Text, SpeakerId, Speed,
-    PSherpaOnnxGeneratedAudioCallbackWithArg(@GenerateCallback), nil);
+  GenerationConfig := Default(TSherpaOnnxGenerationConfig);
+  GenerationConfig.SilenceScale := 0.2;
+  GenerationConfig.Speed := Speed;
+  GenerationConfig.Sid := SpeakerId;
+
+  Audio :=  Tts.Generate(Text, GenerationConfig,
+    @GenerateCallback, nil);
   FinishedGeneration := True;
   SherpaOnnxWriteWave('./kitten-en-playback-0.wav', Audio.Samples, Audio.SampleRate);
   WriteLn('Saved to ./kitten-en-playback-0.wav');
@@ -236,4 +242,3 @@ begin
       Exit;
     end;
 end.
-

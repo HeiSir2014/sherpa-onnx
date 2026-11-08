@@ -36,7 +36,7 @@ static json LoadJson(const std::string &filename) {
   }
   AssertFileExists(filename);
 
-  std::ifstream is(filename);
+  auto is = OpenInputFile(filename);
   json j;
   is >> j;
   return j;
@@ -124,7 +124,7 @@ class SentencePieceTokenizer::Impl {
 
   void InitTrie() {
     trie_.reserve(token2id_.size() * 2);
-    trie_.push_back(TrieNode());  // root
+    trie_.emplace_back();  // root
 
     for (const auto &kv : token2id_) {
       const std::string &tok = kv.first;
@@ -136,7 +136,7 @@ class SentencePieceTokenizer::Impl {
         if (it == trie_[node].next.end()) {
           int32_t new_node = trie_.size();
           trie_[node].next[c] = new_node;
-          trie_.push_back(TrieNode());
+          trie_.emplace_back();
           node = new_node;
         } else {
           node = it->second;
@@ -249,8 +249,8 @@ class SentencePieceTokenizer::Impl {
   std::unordered_map<std::string, float> token2score_;
 
   // <0xNN> byte fallback
-  int32_t byte_token_id_[256];
-  float byte_token_score_[256];
+  int32_t byte_token_id_[256] = {};
+  float byte_token_score_[256] = {};
 };
 
 SentencePieceTokenizer::SentencePieceTokenizer(

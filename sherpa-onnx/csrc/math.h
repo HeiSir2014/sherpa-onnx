@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <cstdint>
 #include <numeric>
 #include <vector>
 
@@ -30,7 +31,7 @@ struct LogAdd;
 template <>
 struct LogAdd<double> {
   double operator()(double x, double y) const {
-    double diff;
+    double diff = 0.0;
 
     if (x < y) {
       diff = x - y;
@@ -41,7 +42,7 @@ struct LogAdd<double> {
     // diff is negative.  x is now the larger one.
 
     if (diff >= SHERPA_ONNX_MIN_LOG_DIFF_DOUBLE) {
-      double res;
+      double res = 0.0;
       res = x + log1p(exp(diff));
       return res;
     }
@@ -53,7 +54,7 @@ struct LogAdd<double> {
 template <>
 struct LogAdd<float> {
   float operator()(float x, float y) const {
-    float diff;
+    float diff = 0.0f;
 
     if (x < y) {
       diff = x - y;
@@ -64,7 +65,7 @@ struct LogAdd<float> {
     // diff is negative.  x is now the larger one.
 
     if (diff >= SHERPA_ONNX_MIN_LOG_DIFF_DOUBLE) {
-      float res;
+      float res = 0.0f;
       res = x + log1pf(expf(diff));
       return res;
     }
@@ -81,10 +82,10 @@ void LogSoftmax(T *input, int32_t input_len) {
 
   T sum = 0.0;
   for (int32_t i = 0; i < input_len; i++) {
-    sum += exp(input[i] - m);
+    sum += std::exp(input[i] - m);
   }
 
-  T offset = m + log(sum);
+  T offset = m + std::log(sum);
   for (int32_t i = 0; i < input_len; i++) {
     input[i] -= offset;
   }
@@ -109,15 +110,25 @@ void SubtractBlank(T *in, int32_t w, int32_t h, int32_t blank_idx,
 
 template <class T>
 std::vector<int32_t> TopkIndex(const T *vec, int32_t size, int32_t topk) {
+  // Clamp topk to [0, size]: std::partial_sort(begin, begin + k, end, cmp)
+  // requires k in [0, end-begin]. Callers (e.g. FinalizeLabels in
+  // offline-speaker-diarization-pyannote-impl.h) can pass topk > size
+  // on short/degenerate inputs; the unclamped call invokes undefined
+  // behavior by reading past the end of vec_index. A negative topk would
+  // be UB for the same reason.
+  int32_t k_num = std::max<int32_t>(0, std::min<int32_t>(size, topk));
   std::vector<int32_t> vec_index(size);
   std::iota(vec_index.begin(), vec_index.end(), 0);
 
-  std::partial_sort(vec_index.begin(), vec_index.begin() + topk,
+  std::partial_sort(vec_index.begin(), vec_index.begin() + k_num,
                     vec_index.end(), [vec](int32_t index_1, int32_t index_2) {
                       return vec[index_1] > vec[index_2];
                     });
 
-  int32_t k_num = std::min<int32_t>(size, topk);
+  if (k_num == size) {
+    // partial_sort with middle == end fully sorts vec_index; skip the copy.
+    return vec_index;
+  }
   return {vec_index.begin(), vec_index.begin() + k_num};
 }
 
@@ -138,6 +149,8 @@ void ScaleAdd(const float *src, float scale, int32_t n, float *in_out);
 
 // out[i] = src[i] * scale
 void Scale(const float *src, float scale, int32_t n, float *out);
+
+std::vector<float> MakeVorbisWindow(int32_t window_length);
 
 // For Paraformer
 std::vector<float> ComputeAcousticEmbedding(
@@ -163,6 +176,8 @@ void ComputeMeanAndInvStd(const float *p, int32_t num_rows, int32_t num_cols,
 
 void NormalizeWhisperFeatures(float *features, int32_t num_frames,
                               int32_t feat_dim);
+
+void NemoNormalizePerFeature(float *p, int32_t num_frames, int32_t feature_dim);
 
 int32_t MaxElementIndex(const float *v, int32_t n);
 

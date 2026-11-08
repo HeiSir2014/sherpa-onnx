@@ -8,8 +8,8 @@
 #include <algorithm>
 #include <memory>
 #include <regex>  // NOLINT
-#include <string>
 #include <sstream>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -24,9 +24,10 @@
 
 namespace sherpa_onnx {
 
-KeywordResult Convert(const TransducerKeywordResult &src,
-                      const SymbolTable &sym_table, float frame_shift_ms,
-                      int32_t subsampling_factor, int32_t frames_since_start) {
+inline KeywordResult Convert(const TransducerKeywordResult &src,
+                             const SymbolTable &sym_table, float frame_shift_ms,
+                             int32_t subsampling_factor,
+                             int32_t frames_since_start) {
   KeywordResult r;
   r.tokens.reserve(src.tokens.size());
   r.timestamps.reserve(src.tokens.size());
@@ -40,7 +41,7 @@ KeywordResult Convert(const TransducerKeywordResult &src,
     }
     r.tokens.push_back(std::move(sym));
   }
-  if (from_tokens && r.keyword.size()) {
+  if (from_tokens && !r.keyword.empty()) {
     r.keyword = r.keyword.substr(1);
   }
 
@@ -284,7 +285,7 @@ class KeywordSpotterTransducerImpl : public KeywordSpotterImpl {
     if (!EncodeKeywords(is, sym_, &keywords_id_, &keywords_, &boost_scores_,
                         &thresholds_)) {
       SHERPA_ONNX_LOGE("Encode keywords failed.");
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
     keywords_graph_ = std::make_shared<ContextGraph>(
         keywords_id_, config_.keywords_score, config_.keywords_threshold,
@@ -300,7 +301,7 @@ class KeywordSpotterTransducerImpl : public KeywordSpotterImpl {
     InitKeywords(is);
 #else
     // each line in keywords_file contains space-separated words
-    std::ifstream is(config_.keywords_file);
+    auto is = OpenInputFile(config_.keywords_file);
     if (!is) {
 #if __OHOS__
       SHERPA_ONNX_LOGE("Open keywords file failed: '%{public}s'",
@@ -309,7 +310,7 @@ class KeywordSpotterTransducerImpl : public KeywordSpotterImpl {
       SHERPA_ONNX_LOGE("Open keywords file failed: '%s'",
                        config_.keywords_file.c_str());
 #endif
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
     InitKeywords(is);
 #endif
@@ -331,7 +332,7 @@ class KeywordSpotterTransducerImpl : public KeywordSpotterImpl {
       SHERPA_ONNX_LOGE("Open keywords file failed: '%s'",
                        config_.keywords_file.c_str());
 #endif
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
     InitKeywords(is);
   }

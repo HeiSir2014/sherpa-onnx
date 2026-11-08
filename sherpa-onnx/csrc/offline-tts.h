@@ -56,7 +56,7 @@ struct OfflineTtsConfig {
 
 struct GeneratedAudio {
   std::vector<float> samples;
-  int32_t sample_rate;
+  int32_t sample_rate = 0;
 
   // Silence means pause here.
   // If scale > 1, then it increases the duration of a pause
@@ -79,6 +79,15 @@ struct GenerationConfig {
   // Please see the Generate method of each model in ./offline-tts-xx-impl.h
   // e.g., in ./offline-tts-pocket-impl.h
   std::unordered_map<std::string, std::string> extra;
+
+  std::vector<std::vector<int32_t>> phoneme_codepoints;
+
+  // For models that use string-based tokens (e.g., Chinese pinyin like
+  // "zhong1", "ang2"). Each inner vector is a sentence of token strings.
+  //
+  // Mutually exclusive with phoneme_codepoints: if both are set, a warning is
+  // printed and generation fails with an empty result.
+  std::vector<std::vector<std::string>> tokens;
 
   std::string GetExtraString(const std::string &key,
                              const std::string &def = "") const;
@@ -118,6 +127,7 @@ class OfflineTts {
   //                 keep a reference to it. The caller can copy the data if
   //                 he/she wants to access the samples after the callback
   //                 returns. The callback is called in the current thread.
+  [[deprecated("Use Generate(text, GenerationConfig, callback) instead")]]
   GeneratedAudio Generate(const std::string &text, int64_t sid = 0,
                           float speed = 1.0,
                           GeneratedAudioCallback callback = nullptr) const;
@@ -135,6 +145,7 @@ class OfflineTts {
   //                 keep a reference to it. The caller can copy the data if
   //                 he/she wants to access the samples after the callback
   //                 returns. The callback is called in the current thread.
+  [[deprecated("Use Generate(text, GenerationConfig, callback) instead")]]
   GeneratedAudio Generate(const std::string &text,
                           const std::string &prompt_text,
                           const std::vector<float> &prompt_samples,
@@ -152,6 +163,9 @@ class OfflineTts {
   // Number of supported speakers.
   // If it supports only a single speaker, then it return 0 or 1.
   int32_t NumSpeakers() const;
+
+  // Language/voice of the model, e.g., "en-us". Empty if not available.
+  std::string Lang() const;
 
  private:
   std::unique_ptr<OfflineTtsImpl> impl_;

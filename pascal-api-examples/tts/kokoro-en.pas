@@ -23,7 +23,7 @@ begin
   Config.Model.Kokoro.Model := './kokoro-en-v0_19/model.onnx';
   Config.Model.Kokoro.Voices := './kokoro-en-v0_19/voices.bin';
   Config.Model.Kokoro.Tokens := './kokoro-en-v0_19/tokens.txt';
-  Config.Model.Kokoro.DataDir := './kokoro-en-v0_19/espeak-ng-data';
+  Config.Model.Kokoro.Lexicon := './lexicon-en-us.txt';
   Config.Model.NumThreads := 2;
   Config.Model.Debug := False;
   Config.MaxNumSentences := 1;
@@ -34,6 +34,7 @@ end;
 var
   Tts: TSherpaOnnxOfflineTts;
   Audio: TSherpaOnnxGeneratedAudio;
+  GenerationConfig: TSherpaOnnxGenerationConfig;
 
   Text: AnsiString;
   Speed: Single = 1.0;  {Use a larger value to speak faster}
@@ -46,10 +47,14 @@ begin
 
   Text := 'Friends fell out often because life was changing so fast. The easiest thing in the world was to lose touch with someone.';
 
-  Audio :=  Tts.Generate(Text, SpeakerId, Speed);
+  GenerationConfig := Default(TSherpaOnnxGenerationConfig);
+  GenerationConfig.SilenceScale := 0.2;
+  GenerationConfig.Speed := Speed;
+  GenerationConfig.Sid := SpeakerId;
+
+  Audio :=  Tts.Generate(Text, GenerationConfig, NIL, NIL);
   SherpaOnnxWriteWave('./kokoro-en-8.wav', Audio.Samples, Audio.SampleRate);
   WriteLn('Saved to ./kokoro-en-8.wav');
 
   FreeAndNil(Tts);
 end.
-

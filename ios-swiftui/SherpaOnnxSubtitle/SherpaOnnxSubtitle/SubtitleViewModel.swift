@@ -5,6 +5,14 @@
 //  Created by knight on 2023/9/23.
 //
 
+#if canImport(SherpaOnnx)
+import SherpaOnnx
+#elseif canImport(SherpaOnnxShared)
+import SherpaOnnxShared
+#else
+#error("SherpaOnnx module not found. Please check your SPM dependency configuration.")
+#endif
+import SherpaOnnxC
 import AVFoundation
 import PhotosUI
 import SwiftUI
@@ -146,8 +154,8 @@ class SubtitleViewModel: ObservableObject {
 
                     segments.append(
                         SpeechSegment(
-                            start: Float(s.start) / Float(sampleRate),
-                            duration: Float(s.samples.count) / Float(sampleRate),
+                            start: Double(s.start) / Double(sampleRate),
+                            duration: Double(s.samples.count) / Double(sampleRate),
                             text: result.text
                         ))
 

@@ -25,10 +25,12 @@ class OfflineTtsImpl {
   static std::unique_ptr<OfflineTtsImpl> Create(Manager *mgr,
                                                 const OfflineTtsConfig &config);
 
+  [[deprecated("Use Generate(text, GenerationConfig, callback) instead")]]
   virtual GeneratedAudio Generate(
       const std::string &text, int64_t sid = 0, float speed = 1.0,
       GeneratedAudioCallback callback = nullptr) const {
     SHERPA_ONNX_LOGE("Not implemented yet. Only some models support this");
+    SHERPA_ONNX_LOGE("Please use sherpa-onnx > v1.12.30");
     return {};
   }
 
@@ -55,8 +57,20 @@ class OfflineTtsImpl {
   // If it supports only a single speaker, then it return 0 or 1.
   virtual int32_t NumSpeakers() const { return 1; }
 
+  // Language/voice of the model, e.g., "en-us". Empty if not available.
+  virtual std::string Lang() const { return ""; }
+
   std::vector<int64_t> AddBlank(const std::vector<int64_t> &x,
                                 int32_t blank_id = 0) const;
+
+ protected:
+  // The model metadata `voice` may contain several space-separated languages,
+  // e.g. "zh en-us" for a bilingual model. The phonemizer needs a single voice,
+  // so return only the last one (e.g. "en-us").
+  static std::string LastLang(const std::string &voice) {
+    auto pos = voice.rfind(' ');
+    return (pos == std::string::npos) ? voice : voice.substr(pos + 1);
+  }
 };
 
 }  // namespace sherpa_onnx

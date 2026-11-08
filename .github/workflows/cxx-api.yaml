@@ -4,7 +4,8 @@ on:
   push:
     branches:
       - master
-      - cxx-api-asr-non-streaming
+      - cxx-api
+      - c-api
     paths:
       - '.github/workflows/cxx-api.yaml'
       - 'cmake/**'
@@ -19,8 +20,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  cxx_api:
-    name: ${{ matrix.os }}
+  build:
+    name: Build ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -78,6 +79,93 @@ jobs:
             otool -L ./install/lib/libsherpa-onnx-cxx-api.dylib
           fi
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.os }}
+          path: build/install
+
+  test-asr-offline:
+    name: Test ASR Offline ${{ matrix.os }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, ubuntu-22.04-arm]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-${{ matrix.os }}
+          path: build/install
+
+      - name: Set up library path
+        shell: bash
+        run: |
+          echo "LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          echo "DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
+
+      - name: Test version
+        shell: bash
+        run: |
+          name=version-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+          ./$name
+
+      - name: Test Cohere Transcribe
+        shell: bash
+        run: |
+          name=cohere-transcribe-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-cohere-transcribe-14-lang-int8-2026-04-01.tar.bz2
+          tar xvf sherpa-onnx-cohere-transcribe-14-lang-int8-2026-04-01.tar.bz2
+          rm sherpa-onnx-cohere-transcribe-14-lang-int8-2026-04-01.tar.bz2
+
+          ./$name
+
+          rm -rf sherpa-onnx-cohere-transcribe-14-lang-int8-2026-04-01
+          rm $name
+
+      - name: Test Qwen3 ASR
+        if: matrix.os != 'ubuntu-latest'
+        shell: bash
+        run: |
+          name=qwen3-asr-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2
+          tar xvf sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2
+          rm sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2
+
+          ./$name
+
+          rm -rf sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25
+          rm $name
+
       - name: Test Moonshine v2
         shell: bash
         run: |
@@ -91,21 +179,11 @@ jobs:
 
           ls -lh $name
 
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ls -lh ./$name
-            ldd ./$name
-            echo "----"
-            readelf -d ./$name
-          fi
-
           curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-quantized-2026-02-27.tar.bz2
           tar xvf sherpa-onnx-moonshine-tiny-en-quantized-2026-02-27.tar.bz2
           rm sherpa-onnx-moonshine-tiny-en-quantized-2026-02-27.tar.bz2
 
           echo "---"
-
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
 
           ./$name
 
@@ -125,26 +203,568 @@ jobs:
 
           ls -lh $name
 
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ls -lh ./$name
-            ldd ./$name
-            echo "----"
-            readelf -d ./$name
-          fi
-
           curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-fire-red-asr2-ctc-zh_en-int8-2026-02-25.tar.bz2
           tar xvf sherpa-onnx-fire-red-asr2-ctc-zh_en-int8-2026-02-25.tar.bz2
           rm sherpa-onnx-fire-red-asr2-ctc-zh_en-int8-2026-02-25.tar.bz2
 
           echo "---"
 
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
-
           ./$name
 
           rm -rf sherpa-onnx-fire-red-*
           rm -v ./$name
+
+      - name: Test Zipformer CTC with an HLG graph
+        shell: bash
+        run: |
+          name=zipformer-ctc-hlg-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-ctc-en-2023-10-02.tar.bz2
+          tar xvf sherpa-onnx-zipformer-ctc-en-2023-10-02.tar.bz2
+          rm sherpa-onnx-zipformer-ctc-en-2023-10-02.tar.bz2
+
+          echo "---"
+
+          # A clean exit proves nothing here: without a graph the decoder
+          # still succeeds, it just decodes freely. The word ids show up only
+          # when the FST decoder ran.
+          ./$name > /tmp/hlg.txt 2>&1
+          cat /tmp/hlg.txt
+          grep -q '"words": \[[0-9]' /tmp/hlg.txt
+
+          rm -rf sherpa-onnx-zipformer-ctc-en-*
+          rm -v ./$name
+
+      - name: Test streaming Zipformer CTC with an HLG graph
+        shell: bash
+        run: |
+          name=streaming-hlg-decode-file-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-ctc-small-2024-03-18.tar.bz2
+          tar xvf sherpa-onnx-streaming-zipformer-ctc-small-2024-03-18.tar.bz2
+          rm sherpa-onnx-streaming-zipformer-ctc-small-2024-03-18.tar.bz2
+
+          echo "---"
+
+          # A clean exit proves nothing here: without a graph the decoder
+          # still succeeds, it just decodes freely. The word ids show up only
+          # when the FST decoder ran.
+          ./$name > /tmp/hlg-streaming.txt 2>&1
+          cat /tmp/hlg-streaming.txt
+          grep -q '"words": \[[0-9]' /tmp/hlg-streaming.txt
+
+          rm -rf sherpa-onnx-streaming-zipformer-ctc-*
+          rm -v ./$name
+
+      - name: Test FunASR Nano
+        shell: bash
+        run: |
+          name=funasr-nano-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-funasr-nano-int8-2025-12-30.tar.bz2
+          tar xvf sherpa-onnx-funasr-nano-int8-2025-12-30.tar.bz2
+          rm sherpa-onnx-funasr-nano-int8-2025-12-30.tar.bz2
+
+          echo "---"
+
+          ./$name
+
+          rm -rf sherpa-onnx-funasr-*
+          rm -v ./$name
+
+      - name: Test MedASR CTC
+        shell: bash
+        run: |
+          name=medasr-ctc-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-medasr-ctc-en-int8-2025-12-25.tar.bz2
+          tar xvf sherpa-onnx-medasr-ctc-en-int8-2025-12-25.tar.bz2
+          rm sherpa-onnx-medasr-ctc-en-int8-2025-12-25.tar.bz2
+
+          echo "---"
+
+          ./$name
+
+          rm -rf sherpa-onnx-medasr-*
+          rm -v ./$name
+
+      - name: Test Omnilingual ASR CTC
+        shell: bash
+        run: |
+          name=omnilingual-asr-ctc-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-omnilingual-asr-1600-languages-300M-ctc-int8-2025-11-12.tar.bz2
+          tar xvf sherpa-onnx-omnilingual-asr-1600-languages-300M-ctc-int8-2025-11-12.tar.bz2
+          rm sherpa-onnx-omnilingual-asr-1600-languages-300M-ctc-int8-2025-11-12.tar.bz2
+
+          echo "---"
+
+          ./$name
+
+          rm -rf sherpa-onnx-omnilingual-*
+          rm -v ./$name
+
+      - name: Test Wenet CTC
+        shell: bash
+        run: |
+          name=wenet-ctc-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-wenetspeech-yue-u2pp-conformer-ctc-zh-en-cantonese-int8-2025-09-10.tar.bz2
+          tar xvf sherpa-onnx-wenetspeech-yue-u2pp-conformer-ctc-zh-en-cantonese-int8-2025-09-10.tar.bz2
+          rm sherpa-onnx-wenetspeech-yue-u2pp-conformer-ctc-zh-en-cantonese-int8-2025-09-10.tar.bz2
+
+          echo "---"
+
+          ./$name
+
+          rm -rf sherpa-onnx-wenetspeech-*
+          rm -v ./$name
+
+      - name: Test Dolphin CTC
+        shell: bash
+        run: |
+          name=dolphin-ctc-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-dolphin-base-ctc-multi-lang-int8-2025-04-02.tar.bz2
+          tar xvf sherpa-onnx-dolphin-base-ctc-multi-lang-int8-2025-04-02.tar.bz2
+          rm sherpa-onnx-dolphin-base-ctc-multi-lang-int8-2025-04-02.tar.bz2
+
+          ./$name
+
+          rm -rf sherpa-onnx-dolphin-base-ctc-multi-lang-int8-2025-04-02
+
+          rm $name
+
+      - name: Test FireRedAsr
+        shell: bash
+        run: |
+          g++ -std=c++17 -o fire-red-asr-cxx-api ./cxx-api-examples/fire-red-asr-cxx-api.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh fire-red-asr-cxx-api
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-fire-red-asr-large-zh_en-2025-02-16.tar.bz2
+          tar xvf sherpa-onnx-fire-red-asr-large-zh_en-2025-02-16.tar.bz2
+          rm sherpa-onnx-fire-red-asr-large-zh_en-2025-02-16.tar.bz2
+
+          ls -lh sherpa-onnx-fire-red-asr-large-zh_en-2025-02-16
+          echo "---"
+          ls -lh sherpa-onnx-fire-red-asr-large-zh_en-2025-02-16/test_wavs
+
+          ./fire-red-asr-cxx-api
+
+          rm -rf sherpa-onnx-fire-red-asr-*
+
+      - name: Test Moonshine tiny
+        shell: bash
+        run: |
+          g++ -std=c++17 -o moonshine-cxx-api ./cxx-api-examples/moonshine-cxx-api.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2
+          tar xvf sherpa-onnx-moonshine-tiny-en-int8.tar.bz2
+          rm sherpa-onnx-moonshine-tiny-en-int8.tar.bz2
+
+          ./moonshine-cxx-api
+
+          rm -rf sherpa-onnx-*
+          rm ./moonshine-cxx-api
+
+      - name: Test whisper
+        shell: bash
+        run: |
+          g++ -std=c++17 -o whisper-cxx-api ./cxx-api-examples/whisper-cxx-api.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh whisper-cxx-api
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.en.tar.bz2
+          tar xvf sherpa-onnx-whisper-tiny.en.tar.bz2
+          rm sherpa-onnx-whisper-tiny.en.tar.bz2
+
+          ls -lh sherpa-onnx-whisper-tiny.en
+          echo "---"
+          ls -lh sherpa-onnx-whisper-tiny.en/test_wavs
+
+          ./whisper-cxx-api
+
+          rm -rf sherpa-onnx-whisper-*
+          rm ./whisper-cxx-api
+
+      - name: Test SenseVoice
+        shell: bash
+        run: |
+          g++ -std=c++17 -o sense-voice-cxx-api ./cxx-api-examples/sense-voice-cxx-api.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh sense-voice-cxx-api
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2
+          tar xvf sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2
+          rm sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2
+
+          ls -lh sherpa-onnx-sense-voice-*
+          echo "---"
+          ls -lh sherpa-onnx-sense-voice-*/test_wavs
+
+          ./sense-voice-cxx-api
+
+          rm -rf sherpa-onnx-sense-voice-*
+          rm ./sense-voice-cxx-api
+
+      - name: Test NeMo Canary
+        shell: bash
+        run: |
+          name=nemo-canary-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-canary-180m-flash-en-es-de-fr-int8.tar.bz2
+          tar xvf sherpa-onnx-nemo-canary-180m-flash-en-es-de-fr-int8.tar.bz2
+          rm sherpa-onnx-nemo-canary-180m-flash-en-es-de-fr-int8.tar.bz2
+
+          ls -lh sherpa-onnx-nemo-canary-180m-flash-en-es-de-fr-int8
+          echo "---"
+
+          ./$name
+
+          rm -rf sherpa-onnx-nemo-canary-*
+          rm -v ./$name
+
+      - name: Test NeMo GigaAM v2
+        shell: bash
+        run: |
+          name=nemo-giga-am-v2-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-transducer-giga-am-v2-russian-2025-04-19.tar.bz2
+          tar xvf sherpa-onnx-nemo-transducer-giga-am-v2-russian-2025-04-19.tar.bz2
+          rm sherpa-onnx-nemo-transducer-giga-am-v2-russian-2025-04-19.tar.bz2
+
+          ./$name
+
+          rm -rf sherpa-onnx-nemo-transducer-giga-am-v2-russian-2025-04-19
+          rm -v ./$name
+
+      - name: Test NeMo CTC
+        shell: bash
+        run: |
+          name=nemo-ctc-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-ctc-en-citrinet-512.tar.bz2
+          tar xvf sherpa-onnx-nemo-ctc-en-citrinet-512.tar.bz2
+          rm sherpa-onnx-nemo-ctc-en-citrinet-512.tar.bz2
+
+          ./$name
+
+          rm -rf sherpa-onnx-nemo-ctc-en-citrinet-512
+          rm -v ./$name
+
+      - name: Test Paraformer CXX
+        shell: bash
+        run: |
+          name=paraformer-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2
+          tar xvf sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2
+          rm sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2
+
+          ./$name
+
+          rm -rf sherpa-onnx-paraformer-zh-small-2024-03-09
+          rm -v ./$name
+
+  test-asr-streaming:
+    name: Test ASR Streaming ${{ matrix.os }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, ubuntu-22.04-arm]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-${{ matrix.os }}
+          path: build/install
+
+      - name: Set up library path
+        shell: bash
+        run: |
+          echo "LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          echo "DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
+
+      - name: Test streaming zipformer
+        shell: bash
+        run: |
+          g++ -std=c++17 -o streaming-zipformer-cxx-api ./cxx-api-examples/streaming-zipformer-cxx-api.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh streaming-zipformer-cxx-api
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20.tar.bz2
+          tar xvf sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20.tar.bz2
+          rm sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20.tar.bz2
+
+          ls -lh sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20
+          echo "---"
+          ls -lh sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20/test_wavs
+
+          ./streaming-zipformer-cxx-api
+
+          rm -rf sherpa-onnx-streaming-zipformer-*
+          rm ./streaming-zipformer-cxx-api
+
+      - name: Test streaming Nemotron
+        shell: bash
+        run: |
+          g++ -std=c++17 -o streaming-nemotron-cxx-api ./cxx-api-examples/streaming-nemotron-cxx-api.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh streaming-nemotron-cxx-api
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemotron-speech-streaming-en-0.6b-560ms-int8-2026-04-25.tar.bz2
+          tar xvf sherpa-onnx-nemotron-speech-streaming-en-0.6b-560ms-int8-2026-04-25.tar.bz2
+          rm sherpa-onnx-nemotron-speech-streaming-en-0.6b-560ms-int8-2026-04-25.tar.bz2
+
+          ./streaming-nemotron-cxx-api
+
+          rm -rf sherpa-onnx-nemotron-speech-streaming-en-0.6b-560ms-int8-2026-04-25
+          rm ./streaming-nemotron-cxx-api
+
+      - name: Test streaming paraformer
+        shell: bash
+        run: |
+          name=streaming-paraformer-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-paraformer-bilingual-zh-en.tar.bz2
+          tar xvf sherpa-onnx-streaming-paraformer-bilingual-zh-en.tar.bz2
+          rm sherpa-onnx-streaming-paraformer-bilingual-zh-en.tar.bz2
+
+          ./$name
+
+          rm -rf sherpa-onnx-streaming-paraformer-bilingual-zh-en
+          rm -v ./$name
+
+      - name: Test T-one
+        shell: bash
+        run: |
+          name=streaming-t-one-ctc-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-t-one-russian-2025-09-08.tar.bz2
+          tar xvf sherpa-onnx-streaming-t-one-russian-2025-09-08.tar.bz2
+          rm sherpa-onnx-streaming-t-one-russian-2025-09-08.tar.bz2
+
+          echo "---"
+
+          ./$name
+
+          rm -rf sherpa-onnx-streaming-t-one-russian-2025-09-08
+          rm -v ./$name
+
+      - name: Test streaming zipformer with Homophone replacer
+        shell: bash
+        run: |
+          name=streaming-zipformer-with-hr-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20.tar.bz2
+          tar xvf sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20.tar.bz2
+          rm sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20.tar.bz2
+
+          ls -lh sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20
+          echo "---"
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/hr-files/dict.tar.bz2
+          tar xf dict.tar.bz2
+          rm dict.tar.bz2
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/hr-files/replace.fst
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/hr-files/test-hr.wav
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/hr-files/lexicon.txt
+
+          ./$name
+
+          rm -rf sherpa-onnx-streaming-zipformer-*
+          rm -rf dict lexicon.txt test-hr.wav replace.fst
+          rm -v ./$name
+
+      - name: Test KWS (zh)
+        shell: bash
+        run: |
+          g++ -std=c++17 -o kws-cxx-api ./cxx-api-examples/kws-cxx-api.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile.tar.bz2
+          tar xvf sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile.tar.bz2
+          rm sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile.tar.bz2
+
+          ./kws-cxx-api
+
+          rm kws-cxx-api
+          rm -rf sherpa-onnx-kws-*
+
+  test-tts:
+    name: Test TTS ${{ matrix.os }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, ubuntu-22.04-arm]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-${{ matrix.os }}
+          path: build/install
+
+      - name: Set up library path
+        shell: bash
+        run: |
+          echo "LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          echo "DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
 
       - name: Test PocketTTS
         shell: bash
@@ -159,21 +779,11 @@ jobs:
 
           ls -lh $name
 
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ls -lh ./$name
-            ldd ./$name
-            echo "----"
-            readelf -d ./$name
-          fi
-
           curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-pocket-tts-int8-2026-01-26.tar.bz2
           tar xf sherpa-onnx-pocket-tts-int8-2026-01-26.tar.bz2
           rm sherpa-onnx-pocket-tts-int8-2026-01-26.tar.bz2
 
           echo "---"
-
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
 
           ./$name
 
@@ -200,25 +810,15 @@ jobs:
 
           ls -lh $name
 
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ls -lh ./$name
-            ldd ./$name
-            echo "----"
-            readelf -d ./$name
-          fi
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-supertonic-tts-int8-2026-03-06.tar.bz2
-          tar xf sherpa-onnx-supertonic-tts-int8-2026-03-06.tar.bz2
-          rm sherpa-onnx-supertonic-tts-int8-2026-03-06.tar.bz2
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2
+          tar xf sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2
+          rm sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2
 
           echo "---"
 
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
-
           ./$name
 
-          rm -rf sherpa-onnx-supertonic-tts-int8-2026-03-06
+          rm -rf sherpa-onnx-supertonic-3-tts-int8-2026-05-11
           rm -v ./$name
 
           ls -lh ./generated-supertonic-en-cxx.wav
@@ -228,10 +828,10 @@ jobs:
           name: supertonic-tts-wavs-${{ matrix.os }}
           path: ./generated-supertonic-en-cxx.wav
 
-      - name: Test FunASR Nano
+      - name: Test ZipVoiceTTS
         shell: bash
         run: |
-          name=funasr-nano-cxx-api
+          name=zipvoice-tts-zh-en-cxx-api
           g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
             -I ./build/install/include \
             -L ./build/install/lib/ \
@@ -241,298 +841,29 @@ jobs:
 
           ls -lh $name
 
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ls -lh ./$name
-            ldd ./$name
-            echo "----"
-            readelf -d ./$name
-          fi
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-zipvoice-distill-int8-zh-en-emilia.tar.bz2
+          tar xf sherpa-onnx-zipvoice-distill-int8-zh-en-emilia.tar.bz2
+          rm sherpa-onnx-zipvoice-distill-int8-zh-en-emilia.tar.bz2
 
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-funasr-nano-int8-2025-12-30.tar.bz2
-          tar xvf sherpa-onnx-funasr-nano-int8-2025-12-30.tar.bz2
-          rm sherpa-onnx-funasr-nano-int8-2025-12-30.tar.bz2
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos_24khz.onnx
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/lexicon-en-us.txt
 
           echo "---"
 
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
-
           ./$name
 
-          rm -rf sherpa-onnx-funasr-*
+          rm -rf sherpa-onnx-zipvoice-distill-int8-zh-en-emilia
+          rm -f vocos_24khz.onnx
+          rm -f lexicon-en-us.txt
           rm -v ./$name
 
-      - name: Test MedASR CTC
-        shell: bash
-        run: |
-          name=medasr-ctc-cxx-api
-          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
-            -I ./build/install/include \
-            -L ./build/install/lib/ \
-            -l sherpa-onnx-cxx-api \
-            -l sherpa-onnx-c-api \
-            -l onnxruntime
+          ls -lh ./generated-zipvoice-zh-en-cxx.wav
 
-          ls -lh $name
-
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ls -lh ./$name
-            ldd ./$name
-            echo "----"
-            readelf -d ./$name
-          fi
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-medasr-ctc-en-int8-2025-12-25.tar.bz2
-          tar xvf sherpa-onnx-medasr-ctc-en-int8-2025-12-25.tar.bz2
-          rm sherpa-onnx-medasr-ctc-en-int8-2025-12-25.tar.bz2
-
-          echo "---"
-
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
-
-          ./$name
-
-          rm -rf sherpa-onnx-medasr-*
-          rm -v ./$name
-
-      - name: Test Omnilingual ASR CTC
-        shell: bash
-        run: |
-          name=omnilingual-asr-ctc-cxx-api
-          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
-            -I ./build/install/include \
-            -L ./build/install/lib/ \
-            -l sherpa-onnx-cxx-api \
-            -l sherpa-onnx-c-api \
-            -l onnxruntime
-
-          ls -lh $name
-
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ls -lh ./$name
-            ldd ./$name
-            echo "----"
-            readelf -d ./$name
-          fi
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-omnilingual-asr-1600-languages-300M-ctc-int8-2025-11-12.tar.bz2
-          tar xvf sherpa-onnx-omnilingual-asr-1600-languages-300M-ctc-int8-2025-11-12.tar.bz2
-          rm sherpa-onnx-omnilingual-asr-1600-languages-300M-ctc-int8-2025-11-12.tar.bz2
-
-          echo "---"
-
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
-
-          ./$name
-
-          rm -rf sherpa-onnx-omnilingual-*
-          rm -v ./$name
-
-      - name: Test Online punctuation
-        shell: bash
-        run: |
-          name=online-punctuation-cxx-api
-          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
-            -I ./build/install/include \
-            -L ./build/install/lib/ \
-            -l sherpa-onnx-cxx-api \
-            -l sherpa-onnx-c-api \
-            -l onnxruntime
-
-          ls -lh $name
-
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ls -lh ./$name
-            ldd ./$name
-            echo "----"
-            readelf -d ./$name
-          fi
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-online-punct-en-2024-08-06.tar.bz2
-          tar xvf sherpa-onnx-online-punct-en-2024-08-06.tar.bz2
-          rm sherpa-onnx-online-punct-en-2024-08-06.tar.bz2
-
-          echo "---"
-
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
-
-          ./$name
-
-          rm -rf sherpa-onnx-online-punct-*
-          rm -v ./$name
-
-      - name: Test Offline punctuation
-        shell: bash
-        run: |
-          name=offline-punctuation-cxx-api
-          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
-            -I ./build/install/include \
-            -L ./build/install/lib/ \
-            -l sherpa-onnx-cxx-api \
-            -l sherpa-onnx-c-api \
-            -l onnxruntime
-
-          ls -lh $name
-
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ls -lh ./$name
-            ldd ./$name
-            echo "----"
-            readelf -d ./$name
-          fi
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2
-          tar xvf sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2
-          rm sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2
-
-          echo "---"
-
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
-
-          ./$name
-
-          rm -rf sherpa-onnx-punct-*
-          rm -v ./$name
-
-      - name: Test CED audio tagging
-        shell: bash
-        run: |
-          name=audio-tagging-ced-cxx-api
-          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
-            -I ./build/install/include \
-            -L ./build/install/lib/ \
-            -l sherpa-onnx-cxx-api \
-            -l sherpa-onnx-c-api \
-            -l onnxruntime
-
-          ls -lh $name
-
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ls -lh ./$name
-            ldd ./$name
-            echo "----"
-            readelf -d ./$name
-          fi
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/audio-tagging-models/sherpa-onnx-ced-mini-audio-tagging-2024-04-19.tar.bz2
-          tar xvf sherpa-onnx-ced-mini-audio-tagging-2024-04-19.tar.bz2
-          rm sherpa-onnx-ced-mini-audio-tagging-2024-04-19.tar.bz2
-
-          echo "---"
-
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
-
-          ./$name
-
-          rm -rf sherpa-onnx-ced-*
-          rm -v ./$name
-
-      - name: Test Zipformer audio tagging
-        shell: bash
-        run: |
-          name=audio-tagging-zipformer-cxx-api
-          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
-            -I ./build/install/include \
-            -L ./build/install/lib/ \
-            -l sherpa-onnx-cxx-api \
-            -l sherpa-onnx-c-api \
-            -l onnxruntime
-
-          ls -lh $name
-
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ls -lh ./$name
-            ldd ./$name
-            echo "----"
-            readelf -d ./$name
-          fi
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/audio-tagging-models/sherpa-onnx-zipformer-small-audio-tagging-2024-04-15.tar.bz2
-          tar xvf sherpa-onnx-zipformer-small-audio-tagging-2024-04-15.tar.bz2
-          rm sherpa-onnx-zipformer-small-audio-tagging-2024-04-15.tar.bz2
-
-          echo "---"
-
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
-
-          ./$name
-
-          rm -rf sherpa-onnx-zipformer-*
-          rm -v ./$name
-
-      - name: Test Wenet CTC
-        shell: bash
-        run: |
-          name=wenet-ctc-cxx-api
-          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
-            -I ./build/install/include \
-            -L ./build/install/lib/ \
-            -l sherpa-onnx-cxx-api \
-            -l sherpa-onnx-c-api \
-            -l onnxruntime
-
-          ls -lh $name
-
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ls -lh ./$name
-            ldd ./$name
-            echo "----"
-            readelf -d ./$name
-          fi
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-wenetspeech-yue-u2pp-conformer-ctc-zh-en-cantonese-int8-2025-09-10.tar.bz2
-          tar xvf sherpa-onnx-wenetspeech-yue-u2pp-conformer-ctc-zh-en-cantonese-int8-2025-09-10.tar.bz2
-          rm sherpa-onnx-wenetspeech-yue-u2pp-conformer-ctc-zh-en-cantonese-int8-2025-09-10.tar.bz2
-
-          echo "---"
-
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
-
-          ./$name
-
-          rm -rf sherpa-onnx-wenetspeech-*
-          rm -v ./$name
-
-      - name: Test T-one
-        shell: bash
-        run: |
-          name=streaming-t-one-ctc-cxx-api
-          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
-            -I ./build/install/include \
-            -L ./build/install/lib/ \
-            -l sherpa-onnx-cxx-api \
-            -l sherpa-onnx-c-api \
-            -l onnxruntime
-
-          ls -lh $name
-
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ls -lh ./$name
-            ldd ./$name
-            echo "----"
-            readelf -d ./$name
-          fi
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-t-one-russian-2025-09-08.tar.bz2
-          tar xvf sherpa-onnx-streaming-t-one-russian-2025-09-08.tar.bz2
-          rm sherpa-onnx-streaming-t-one-russian-2025-09-08.tar.bz2
-
-          echo "---"
-
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
-
-          ./$name
-
-          rm -rf sherpa-onnx-streaming-t-one-russian-2025-09-08
-          rm -v ./$name
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zipvoice-tts-wavs-${{ matrix.os }}
+          path: ./generated-zipvoice-zh-en-cxx.wav
 
       - name: Test KittenTTS
         shell: bash
@@ -547,25 +878,18 @@ jobs:
 
           ls -lh $name
 
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ls -lh ./$name
-            ldd ./$name
-            echo "----"
-            readelf -d ./$name
-          fi
-
           curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kitten-nano-en-v0_1-fp16.tar.bz2
           tar xf kitten-nano-en-v0_1-fp16.tar.bz2
           rm kitten-nano-en-v0_1-fp16.tar.bz2
 
-          echo "---"
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/lexicon-en-us.txt
 
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
+          echo "---"
 
           ./$name
 
           rm -rf kitten-nano-en-v0_1-fp16
+          rm -f lexicon-en-us.txt
           rm -v ./$name
 
       - uses: actions/upload-artifact@v4
@@ -573,10 +897,108 @@ jobs:
           name: kitten-tts-wavs-${{ matrix.os }}
           path: ./generated-kitten-en-cxx.wav
 
-      - name: Test NeMo Canary
+      - name: Test Kokoro TTS (zh+en)
         shell: bash
         run: |
-          name=nemo-canary-cxx-api
+          g++ -std=c++17 -o kokoro-tts-zh-en-cxx-api ./cxx-api-examples/kokoro-tts-zh-en-cxx-api.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2
+          tar xf kokoro-multi-lang-v1_0.tar.bz2
+          rm kokoro-multi-lang-v1_0.tar.bz2
+
+          ./kokoro-tts-zh-en-cxx-api
+
+          rm kokoro-tts-zh-en-cxx-api
+          rm -rf kokoro-*
+
+      - name: Test Kokoro TTS (en)
+        shell: bash
+        run: |
+          g++ -std=c++17 -o kokoro-tts-en-cxx-api ./cxx-api-examples/kokoro-tts-en-cxx-api.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-en-v0_19.tar.bz2
+          tar xf kokoro-en-v0_19.tar.bz2
+          rm kokoro-en-v0_19.tar.bz2
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/lexicon-en-us.txt
+
+          ./kokoro-tts-en-cxx-api
+
+          rm kokoro-tts-en-cxx-api
+          rm -rf kokoro-en-*
+          rm -f lexicon-en-us.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kokoro-tts-${{ matrix.os }}
+          path: ./generated-kokoro-*.wav
+
+      - name: Test Matcha TTS (zh)
+        shell: bash
+        run: |
+          g++ -std=c++17 -o matcha-tts-zh-cxx-api ./cxx-api-examples/matcha-tts-zh-cxx-api.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/matcha-icefall-zh-baker.tar.bz2
+          tar xvf matcha-icefall-zh-baker.tar.bz2
+          rm matcha-icefall-zh-baker.tar.bz2
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos-22khz-univ.onnx
+
+          ./matcha-tts-zh-cxx-api
+
+          rm -rf matcha-icefall-*
+          rm vocos-22khz-univ.onnx
+          rm matcha-tts-zh-cxx-api
+
+      - name: Test Matcha TTS (en)
+        shell: bash
+        run: |
+          g++ -std=c++17 -o matcha-tts-en-cxx-api ./cxx-api-examples/matcha-tts-en-cxx-api.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/matcha-icefall-en_US-ljspeech.tar.bz2
+          tar xvf matcha-icefall-en_US-ljspeech.tar.bz2
+          rm matcha-icefall-en_US-ljspeech.tar.bz2
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos-22khz-univ.onnx
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/lexicon-en-us.txt
+
+          ./matcha-tts-en-cxx-api
+
+          rm matcha-tts-en-cxx-api
+          rm -rf matcha-icefall-*
+          rm vocos-22khz-univ.onnx
+          rm -f lexicon-en-us.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: matcha-tts-${{ matrix.os }}
+          path: ./generated-matcha-*.wav
+
+      - name: Test Offline TTS Piper
+        shell: bash
+        run: |
+          name=offline-tts-piper-cxx-api
           g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
             -I ./build/install/include \
             -L ./build/install/lib/ \
@@ -586,101 +1008,47 @@ jobs:
 
           ls -lh $name
 
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ldd ./$name
-            echo "----"
-            readelf -d ./$name
-          fi
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-lessac-medium.tar.bz2
+          tar xf vits-piper-en_US-lessac-medium.tar.bz2
+          rm vits-piper-en_US-lessac-medium.tar.bz2
 
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-canary-180m-flash-en-es-de-fr-int8.tar.bz2
-          tar xvf sherpa-onnx-nemo-canary-180m-flash-en-es-de-fr-int8.tar.bz2
-          rm sherpa-onnx-nemo-canary-180m-flash-en-es-de-fr-int8.tar.bz2
-
-          ls -lh sherpa-onnx-nemo-canary-180m-flash-en-es-de-fr-int8
-          echo "---"
-
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/lexicon-en-us.txt
 
           ./$name
 
-          rm -rf sherpa-onnx-nemo-canary-*
+          rm -rf vits-piper-en_US-lessac-medium
+          rm -f lexicon-en-us.txt
           rm -v ./$name
 
-      - name: Test streaming zipformer with Homophone replacer
+          ls -lh ./generated-piper-en-cxx.wav
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: piper-tts-wavs-${{ matrix.os }}
+          path: ./generated-piper-en-cxx.wav
+
+  test-vad-punct:
+    name: Test VAD Punct ${{ matrix.os }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, ubuntu-22.04-arm]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-${{ matrix.os }}
+          path: build/install
+
+      - name: Set up library path
         shell: bash
         run: |
-          name=streaming-zipformer-with-hr-cxx-api
-          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
-            -I ./build/install/include \
-            -L ./build/install/lib/ \
-            -l sherpa-onnx-cxx-api \
-            -l sherpa-onnx-c-api \
-            -l onnxruntime
-
-          ls -lh $name
-
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ldd ./$name
-            echo "----"
-            readelf -d ./$name
-          fi
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20.tar.bz2
-          tar xvf sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20.tar.bz2
-          rm sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20.tar.bz2
-
-          ls -lh sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20
-          echo "---"
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/hr-files/dict.tar.bz2
-          tar xf dict.tar.bz2
-          rm dict.tar.bz2
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/hr-files/replace.fst
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/hr-files/test-hr.wav
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/hr-files/lexicon.txt
-
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
-
-          ./$name
-
-          rm -rf sherpa-onnx-streaming-zipformer-*
-          rm -rf dict lexicon.txt test-hr.wav replace.fst
-          rm -v ./$name
-
-      - name: Test Dolphin CTC
-        shell: bash
-        run: |
-          name=dolphin-ctc-cxx-api
-          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
-            -I ./build/install/include \
-            -L ./build/install/lib/ \
-            -l sherpa-onnx-cxx-api \
-            -l sherpa-onnx-c-api \
-            -l onnxruntime
-
-          ls -lh $name
-
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
-
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ldd ./$name
-            echo "----"
-            readelf -d ./$name
-          fi
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-dolphin-base-ctc-multi-lang-int8-2025-04-02.tar.bz2
-          tar xvf sherpa-onnx-dolphin-base-ctc-multi-lang-int8-2025-04-02.tar.bz2
-          rm sherpa-onnx-dolphin-base-ctc-multi-lang-int8-2025-04-02.tar.bz2
-
-          ./$name
-
-          rm -rf sherpa-onnx-dolphin-base-ctc-multi-lang-int8-2025-04-02
-
-          rm $name
+          echo "LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          echo "DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
 
       - name: Test silero-vad
         shell: bash
@@ -694,15 +1062,6 @@ jobs:
             -l onnxruntime
 
           ls -lh $name
-
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
-
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ldd ./$name
-            echo "----"
-            readelf -d ./$name
-          fi
 
           curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/lei-jun-test.wav
           curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx
@@ -736,15 +1095,6 @@ jobs:
 
           ls -lh $name
 
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
-
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ldd ./$name
-            echo "----"
-            readelf -d ./$name
-          fi
-
           curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/lei-jun-test.wav
           curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/ten-vad.onnx
 
@@ -764,10 +1114,10 @@ jobs:
           name: ten-vad-test-wavs-cxx-${{ matrix.os }}
           path: ./vad-test-ten-vad/*.wav
 
-      - name: Test Speech Enhancement (GTCRN)
+      - name: Test Online punctuation
         shell: bash
         run: |
-          name=speech-enhancement-gtcrn-cxx-api
+          name=online-punctuation-cxx-api
           g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
             -I ./build/install/include \
             -L ./build/install/lib/ \
@@ -777,310 +1127,467 @@ jobs:
 
           ls -lh $name
 
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-online-punct-en-2024-08-06.tar.bz2
+          tar xvf sherpa-onnx-online-punct-en-2024-08-06.tar.bz2
+          rm sherpa-onnx-online-punct-en-2024-08-06.tar.bz2
 
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ldd ./$name
-            echo "----"
-            readelf -d ./$name
-          fi
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/gtcrn_simple.onnx
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/inp_16k.wav
+          echo "---"
 
           ./$name
 
+          rm -rf sherpa-onnx-online-punct-*
+          rm -v ./$name
+
+      - name: Test Offline punctuation
+        shell: bash
+        run: |
+          name=offline-punctuation-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2
+          tar xvf sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2
+          rm sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2
+
+          echo "---"
+
+          ./$name
+
+          rm -rf sherpa-onnx-punct-*
+          rm -v ./$name
+
+  test-other:
+    name: Test Other ${{ matrix.os }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, ubuntu-22.04-arm]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-${{ matrix.os }}
+          path: build/install
+
+      - name: Set up library path
+        shell: bash
+        run: |
+          echo "LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          echo "DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
+
+      - name: Test Source Separation (Spleeter)
+        shell: bash
+        run: |
+          name=source-separation-spleeter-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/sherpa-onnx-spleeter-2stems-fp16.tar.bz2
+          tar xjf sherpa-onnx-spleeter-2stems-fp16.tar.bz2
+          rm sherpa-onnx-spleeter-2stems-fp16.tar.bz2
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/qi-feng-le-zh.wav
+
+          ./$name
+
+          mkdir source-separation-wavs
+          cp -v spleeter-*.wav source-separation-wavs/
+
+          rm -rf sherpa-onnx-spleeter-*
+          rm -fv qi-feng-le-zh.wav
+          rm -v ./$name
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-separation-spleeter-wavs-cxx-${{ matrix.os }}
+          path: ./source-separation-wavs/*.wav
+
+      - name: Test Source Separation (UVR)
+        shell: bash
+        run: |
+          name=source-separation-uvr-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/UVR-MDX-NET-Voc_FT.onnx
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/qi-feng-le-zh.wav
+
+          ./$name
+
+          cp -v uvr-*.wav source-separation-wavs/
+
+          rm -fv UVR-MDX-NET-Voc_FT.onnx
+          rm -fv qi-feng-le-zh.wav
+          rm -v ./$name
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-separation-uvr-wavs-cxx-${{ matrix.os }}
+          path: ./source-separation-wavs/*.wav
+
+      - name: Test Speech Enhancement
+        shell: bash
+        run: |
+          gtcrn_name=speech-enhancement-gtcrn-cxx-api
+          g++ -std=c++17 -o $gtcrn_name ./cxx-api-examples/$gtcrn_name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          dpdfnet_name=speech-enhancement-dpdfnet-cxx-api
+          g++ -std=c++17 -o $dpdfnet_name ./cxx-api-examples/$dpdfnet_name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          online_gtcrn_name=online-speech-enhancement-gtcrn-cxx-api
+          g++ -std=c++17 -o $online_gtcrn_name ./cxx-api-examples/$online_gtcrn_name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          online_dpdfnet_name=online-speech-enhancement-dpdfnet-cxx-api
+          g++ -std=c++17 -o $online_dpdfnet_name ./cxx-api-examples/$online_dpdfnet_name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $gtcrn_name $dpdfnet_name $online_gtcrn_name $online_dpdfnet_name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/gtcrn_simple.onnx
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/dpdfnet_baseline.onnx
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/inp_16k.wav
+
+          ./$gtcrn_name
+          ./$dpdfnet_name
+          ./$online_gtcrn_name
+          ./$online_dpdfnet_name
+
           mkdir denoised-wavs
           cp -v inp_16k.wav denoised-wavs
-          cp -v enhanced_16k.wav denoised-wavs
+          cp -v enhanced-gtcrn.wav denoised-wavs
+          cp -v enhanced-dpdfnet.wav denoised-wavs
+          cp -v enhanced-online-gtcrn.wav denoised-wavs
+          cp -v enhanced-online-dpdfnet.wav denoised-wavs
 
-          rm $name
+          rm $gtcrn_name $dpdfnet_name $online_gtcrn_name $online_dpdfnet_name
 
       - uses: actions/upload-artifact@v4
         with:
           name: denoised-wavs-cxx-${{ matrix.os }}
           path: ./denoised-wavs/*.wav
 
-      - name: Test FireRedAsr
+      - name: Test CED audio tagging
         shell: bash
         run: |
-          g++ -std=c++17 -o fire-red-asr-cxx-api ./cxx-api-examples/fire-red-asr-cxx-api.cc \
+          name=audio-tagging-ced-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
             -I ./build/install/include \
             -L ./build/install/lib/ \
             -l sherpa-onnx-cxx-api \
             -l sherpa-onnx-c-api \
             -l onnxruntime
 
-          ls -lh fire-red-asr-cxx-api
+          ls -lh $name
 
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/audio-tagging-models/sherpa-onnx-ced-mini-audio-tagging-2024-04-19.tar.bz2
+          tar xvf sherpa-onnx-ced-mini-audio-tagging-2024-04-19.tar.bz2
+          rm sherpa-onnx-ced-mini-audio-tagging-2024-04-19.tar.bz2
 
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ldd ./fire-red-asr-cxx-api
-            echo "----"
-            readelf -d ./fire-red-asr-cxx-api
-          fi
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-fire-red-asr-large-zh_en-2025-02-16.tar.bz2
-          tar xvf sherpa-onnx-fire-red-asr-large-zh_en-2025-02-16.tar.bz2
-          rm sherpa-onnx-fire-red-asr-large-zh_en-2025-02-16.tar.bz2
-
-          ls -lh sherpa-onnx-fire-red-asr-large-zh_en-2025-02-16
           echo "---"
-          ls -lh sherpa-onnx-fire-red-asr-large-zh_en-2025-02-16/test_wavs
 
-          ./fire-red-asr-cxx-api
+          ./$name
 
-          rm -rf sherpa-onnx-fire-red-asr-*
+          rm -rf sherpa-onnx-ced-*
+          rm -v ./$name
 
-      - name: Test KWS (zh)
+      - name: Test Zipformer audio tagging
         shell: bash
         run: |
-          g++ -std=c++17 -o kws-cxx-api ./cxx-api-examples/kws-cxx-api.cc \
+          name=audio-tagging-zipformer-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
             -I ./build/install/include \
             -L ./build/install/lib/ \
             -l sherpa-onnx-cxx-api \
             -l sherpa-onnx-c-api \
             -l onnxruntime
 
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile.tar.bz2
-          tar xvf sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile.tar.bz2
-          rm sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01-mobile.tar.bz2
+          ls -lh $name
 
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/audio-tagging-models/sherpa-onnx-zipformer-small-audio-tagging-2024-04-15.tar.bz2
+          tar xvf sherpa-onnx-zipformer-small-audio-tagging-2024-04-15.tar.bz2
+          rm sherpa-onnx-zipformer-small-audio-tagging-2024-04-15.tar.bz2
 
-          ./kws-cxx-api
+          echo "---"
 
-          rm kws-cxx-api
-          rm -rf sherpa-onnx-kws-*
+          ./$name
 
-      - name: Test Kokoro TTS (zh+en)
+          rm -rf sherpa-onnx-zipformer-*
+          rm -v ./$name
+
+      - name: Test offline speaker diarization
         shell: bash
         run: |
-          g++ -std=c++17 -o kokoro-tts-zh-en-cxx-api ./cxx-api-examples/kokoro-tts-zh-en-cxx-api.cc \
+          name=offline-speaker-diarization-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
             -I ./build/install/include \
             -L ./build/install/lib/ \
             -l sherpa-onnx-cxx-api \
             -l sherpa-onnx-c-api \
             -l onnxruntime
 
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2
-          tar xf kokoro-multi-lang-v1_0.tar.bz2
-          rm kokoro-multi-lang-v1_0.tar.bz2
+          ls -lh $name
 
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2
+          tar xvf sherpa-onnx-pyannote-segmentation-3-0.tar.bz2
+          rm sherpa-onnx-pyannote-segmentation-3-0.tar.bz2
 
-          ./kokoro-tts-zh-en-cxx-api
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx
 
-          rm kokoro-tts-zh-en-cxx-api
-          rm -rf kokoro-*
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/0-four-speakers-zh.wav
 
-      - name: Test Kokoro TTS (en)
+          ./$name
+
+          rm -rf sherpa-onnx-pyannote-segmentation-3-0
+          rm 3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx
+          rm 0-four-speakers-zh.wav
+          rm -v ./$name
+
+      - name: Test speaker identification
         shell: bash
         run: |
-          g++ -std=c++17 -o kokoro-tts-en-cxx-api ./cxx-api-examples/kokoro-tts-en-cxx-api.cc \
+          name=speaker-identification-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
             -I ./build/install/include \
             -L ./build/install/lib/ \
             -l sherpa-onnx-cxx-api \
             -l sherpa-onnx-c-api \
             -l onnxruntime
 
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-en-v0_19.tar.bz2
-          tar xf kokoro-en-v0_19.tar.bz2
-          rm kokoro-en-v0_19.tar.bz2
+          ls -lh $name
 
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx
 
-          ./kokoro-tts-en-cxx-api
+          curl -SL -O https://github.com/csukuangfj/sr-data/archive/refs/heads/master.tar.gz
+          tar xzf master.tar.gz
+          mv sr-data-main sr-data
+          rm master.tar.gz
 
-          rm kokoro-tts-en-cxx-api
-          rm -rf kokoro-en-*
+          ./$name
+
+          rm -rf sr-data
+          rm 3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx
+          rm -v ./$name
+
+      - name: Test spoken language identification
+        shell: bash
+        run: |
+          name=spoken-language-identification-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.tar.bz2
+          tar xvf sherpa-onnx-whisper-tiny.tar.bz2
+          rm sherpa-onnx-whisper-tiny.tar.bz2
+
+          ./$name
+
+          rm -rf sherpa-onnx-whisper-tiny
+          rm -v ./$name
+
+  test-speech-enhancement:
+    name: Test Speech Enhancement ${{ matrix.os }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, ubuntu-22.04-arm]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: build-${{ matrix.os }}
+          path: build/install
+
+      - name: Set up library path
+        shell: bash
+        run: |
+          echo "LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          echo "DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
+
+      - name: Test version
+        shell: bash
+        run: |
+          name=version-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+          ./$name
+      - name: Test Speech Enhancement (VoxLock)
+        shell: bash
+        run: |
+          name=speech-enhancement-voxlock-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/sherpa-onnx-voxlock-int8.tar.bz2
+          tar xvf sherpa-onnx-voxlock-int8.tar.bz2
+          rm sherpa-onnx-voxlock-int8.tar.bz2
+
+          ./$name
+
+          rm $name
+          mkdir -p $name
+          mv -v voxlock-enhanced-16k.wav $name/
+          cp -v sherpa-onnx-voxlock-int8/test_wavs/en-combined.wav $name/
+
+          rm -rf sherpa-onnx-voxlock-int8
+
+      - name: Test Speech Enhancement (VoxLock, with voice sample)
+        shell: bash
+        run: |
+          name=speech-enhancement-voxlock-with-voice-sample-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/sherpa-onnx-voxlock-int8.tar.bz2
+          tar xvf sherpa-onnx-voxlock-int8.tar.bz2
+          rm sherpa-onnx-voxlock-int8.tar.bz2
+
+          ./$name
+
+          rm $name
+          mkdir -p $name
+          mv -v voxlock-enhanced-with-voice-sample-16k.wav $name/
+          cp -v sherpa-onnx-voxlock-int8/test_wavs/en-combined.wav $name/
+          cp -v sherpa-onnx-voxlock-int8/test_wavs/en-voice-sample-f.wav $name/
+
+          rm -rf sherpa-onnx-voxlock-int8
+
+      - name: Test Online Speech Enhancement (VoxLock)
+        shell: bash
+        run: |
+          name=online-speech-enhancement-voxlock-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/sherpa-onnx-voxlock-int8.tar.bz2
+          tar xvf sherpa-onnx-voxlock-int8.tar.bz2
+          rm sherpa-onnx-voxlock-int8.tar.bz2
+
+          ./$name
+
+          rm $name
+          mkdir -p $name
+          mv -v voxlock-enhanced-online-16k.wav $name/
+          cp -v sherpa-onnx-voxlock-int8/test_wavs/en-combined.wav $name/
+
+          rm -rf sherpa-onnx-voxlock-int8
+
+      - name: Test Online Speech Enhancement (VoxLock, with voice sample)
+        shell: bash
+        run: |
+          name=online-speech-enhancement-voxlock-with-voice-sample-cxx-api
+          g++ -std=c++17 -o $name ./cxx-api-examples/$name.cc \
+            -I ./build/install/include \
+            -L ./build/install/lib/ \
+            -l sherpa-onnx-cxx-api \
+            -l sherpa-onnx-c-api \
+            -l onnxruntime
+
+          ls -lh $name
+
+          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/sherpa-onnx-voxlock-int8.tar.bz2
+          tar xvf sherpa-onnx-voxlock-int8.tar.bz2
+          rm sherpa-onnx-voxlock-int8.tar.bz2
+
+          ./$name
+
+          rm $name
+          mkdir -p $name
+          mv -v voxlock-enhanced-online-with-voice-sample-16k.wav $name/
+          cp -v sherpa-onnx-voxlock-int8/test_wavs/en-combined.wav $name/
+          cp -v sherpa-onnx-voxlock-int8/test_wavs/en-voice-sample-f.wav $name/
+
+          rm -rf sherpa-onnx-voxlock-int8
 
       - uses: actions/upload-artifact@v4
         with:
-          name: kokoro-tts-${{ matrix.os }}
-          path: ./generated-kokoro-*.wav
-
-      - name: Test Matcha TTS (zh)
-        shell: bash
-        run: |
-          g++ -std=c++17 -o matcha-tts-zh-cxx-api ./cxx-api-examples/matcha-tts-zh-cxx-api.cc \
-            -I ./build/install/include \
-            -L ./build/install/lib/ \
-            -l sherpa-onnx-cxx-api \
-            -l sherpa-onnx-c-api \
-            -l onnxruntime
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/matcha-icefall-zh-baker.tar.bz2
-          tar xvf matcha-icefall-zh-baker.tar.bz2
-          rm matcha-icefall-zh-baker.tar.bz2
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos-22khz-univ.onnx
-
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
-
-          ./matcha-tts-zh-cxx-api
-
-          rm -rf matcha-icefall-*
-          rm vocos-22khz-univ.onnx
-          rm matcha-tts-zh-cxx-api
-
-      - name: Test Matcha TTS (en)
-        shell: bash
-        run: |
-          g++ -std=c++17 -o matcha-tts-en-cxx-api ./cxx-api-examples/matcha-tts-en-cxx-api.cc \
-            -I ./build/install/include \
-            -L ./build/install/lib/ \
-            -l sherpa-onnx-cxx-api \
-            -l sherpa-onnx-c-api \
-            -l onnxruntime
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/matcha-icefall-en_US-ljspeech.tar.bz2
-          tar xvf matcha-icefall-en_US-ljspeech.tar.bz2
-          rm matcha-icefall-en_US-ljspeech.tar.bz2
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos-22khz-univ.onnx
-
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
-
-          ./matcha-tts-en-cxx-api
-
-          rm matcha-tts-en-cxx-api
-          rm -rf matcha-icefall-*
-          rm vocos-22khz-univ.onnx
+          name: speech-enhancement-voxlock-cxx-api-${{ matrix.os }}
+          path: speech-enhancement-voxlock-cxx-api
 
       - uses: actions/upload-artifact@v4
         with:
-          name: matcha-tts-${{ matrix.os }}
-          path: ./generated-matcha-*.wav
+          name: speech-enhancement-voxlock-with-voice-sample-cxx-api-${{ matrix.os }}
+          path: speech-enhancement-voxlock-with-voice-sample-cxx-api
 
-      - name: Test Moonshine tiny
-        shell: bash
-        run: |
-          g++ -std=c++17 -o moonshine-cxx-api ./cxx-api-examples/moonshine-cxx-api.cc \
-            -I ./build/install/include \
-            -L ./build/install/lib/ \
-            -l sherpa-onnx-cxx-api \
-            -l sherpa-onnx-c-api \
-            -l onnxruntime
+      - uses: actions/upload-artifact@v4
+        with:
+          name: online-speech-enhancement-voxlock-cxx-api-${{ matrix.os }}
+          path: online-speech-enhancement-voxlock-cxx-api
 
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2
-          tar xvf sherpa-onnx-moonshine-tiny-en-int8.tar.bz2
-          rm sherpa-onnx-moonshine-tiny-en-int8.tar.bz2
-
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
-
-          ./moonshine-cxx-api
-
-          rm -rf sherpa-onnx-*
-          rm ./moonshine-cxx-api
-
-      - name: Test whisper
-        shell: bash
-        run: |
-          g++ -std=c++17 -o whisper-cxx-api ./cxx-api-examples/whisper-cxx-api.cc \
-            -I ./build/install/include \
-            -L ./build/install/lib/ \
-            -l sherpa-onnx-cxx-api \
-            -l sherpa-onnx-c-api \
-            -l onnxruntime
-
-          ls -lh whisper-cxx-api
-
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ldd ./whisper-cxx-api
-            echo "----"
-            readelf -d ./whisper-cxx-api
-          fi
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.en.tar.bz2
-          tar xvf sherpa-onnx-whisper-tiny.en.tar.bz2
-          rm sherpa-onnx-whisper-tiny.en.tar.bz2
-
-          ls -lh sherpa-onnx-whisper-tiny.en
-          echo "---"
-          ls -lh sherpa-onnx-whisper-tiny.en/test_wavs
-
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
-
-          ./whisper-cxx-api
-
-          rm -rf sherpa-onnx-whisper-*
-          rm ./whisper-cxx-api
-
-      - name: Test SenseVoice
-        shell: bash
-        run: |
-          g++ -std=c++17 -o sense-voice-cxx-api ./cxx-api-examples/sense-voice-cxx-api.cc \
-            -I ./build/install/include \
-            -L ./build/install/lib/ \
-            -l sherpa-onnx-cxx-api \
-            -l sherpa-onnx-c-api \
-            -l onnxruntime
-
-          ls -lh sense-voice-cxx-api
-
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ldd ./sense-voice-cxx-api
-            echo "----"
-            readelf -d ./sense-voice-cxx-api
-          fi
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2
-          tar xvf sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2
-          rm sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2
-
-          ls -lh sherpa-onnx-sense-voice-*
-          echo "---"
-          ls -lh sherpa-onnx-sense-voice-*/test_wavs
-
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
-
-          ./sense-voice-cxx-api
-
-          rm -rf sherpa-onnx-sense-voice-*
-          rm ./sense-voice-cxx-api
-
-      - name: Test streaming zipformer
-        shell: bash
-        run: |
-          g++ -std=c++17 -o streaming-zipformer-cxx-api ./cxx-api-examples/streaming-zipformer-cxx-api.cc \
-            -I ./build/install/include \
-            -L ./build/install/lib/ \
-            -l sherpa-onnx-cxx-api \
-            -l sherpa-onnx-c-api \
-            -l onnxruntime
-
-          ls -lh streaming-zipformer-cxx-api
-
-          if [[ ${{ matrix.os }} == ubuntu-latest || ${{ matrix.os }} == ubuntu-22.04-arm ]]; then
-            ldd ./streaming-zipformer-cxx-api
-            echo "----"
-            readelf -d ./streaming-zipformer-cxx-api
-          fi
-
-          curl -SL -O https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20.tar.bz2
-          tar xvf sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20.tar.bz2
-          rm sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20.tar.bz2
-
-          ls -lh sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20
-          echo "---"
-          ls -lh sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20/test_wavs
-
-          export LD_LIBRARY_PATH=$PWD/build/install/lib:$LD_LIBRARY_PATH
-          export DYLD_LIBRARY_PATH=$PWD/build/install/lib:$DYLD_LIBRARY_PATH
-
-          ./streaming-zipformer-cxx-api
-
-          rm -rf sherpa-onnx-streaming-zipformer-*
-          rm ./streaming-zipformer-cxx-api
+      - uses: actions/upload-artifact@v4
+        with:
+          name: online-speech-enhancement-voxlock-with-voice-sample-cxx-api-${{ matrix.os }}
+          path: online-speech-enhancement-voxlock-with-voice-sample-cxx-api

@@ -52,7 +52,62 @@
 
 /**
  * @typedef {Object} OfflinePunctuationHandle
+ * @see src/offline-punctuation.cc
+ */
+
+/**
+ * @typedef {Object} LinearResamplerHandle
+ * @see src/resampler.cc
+ */
+
+/**
+ * @typedef {Object} OfflineTtsHandle
+ * @see src/non-streaming-tts.cc
+ */
+
+/**
+ * @typedef {Object} OnlinePunctuationHandle
  * @see src/punctuation.cc
+ */
+
+/**
+ * @typedef {Object} KeywordSpotterHandle
+ * @see src/keyword-spotter.cc
+ */
+
+/**
+ * @typedef {Object} SpeakerEmbeddingExtractorHandle
+ * @see src/speaker-identification.cc
+ */
+
+/**
+ * @typedef {Object} SpeakerEmbeddingManagerHandle
+ * @see src/speaker-identification.cc
+ */
+
+/**
+ * @typedef {Object} SpokenLanguageIdentificationHandle
+ * @see src/spoken-language-identification.cc
+ */
+
+/**
+ * @typedef {Object} OfflineSpeakerDiarizationHandle
+ * @see src/non-streaming-speaker-diarization.cc
+ */
+
+/**
+ * @typedef {Object} OfflineSpeechDenoiserHandle
+ * @see src/non-streaming-speech-denoiser.cc
+ */
+
+/**
+ * @typedef {Object} OfflineSourceSeparationHandle
+ * @see src/offline-source-separation.cc
+ */
+
+/**
+ * @typedef {Object} OnlineSpeechDenoiserHandle
+ * @see src/online-speech-denoiser.cc
  */
 
 /**
@@ -235,6 +290,16 @@
  */
 
 /**
+ * Offline Cohere Transcribe model config
+ * @typedef {Object} OfflineCohereTranscribeModelConfig
+ * @property {string} [encoder]
+ * @property {string} [decoder]
+ * @property {string} [language]
+ * @property {number} [usePunct]
+ * @property {number} [useItn]
+ */
+
+/**
  * Offline model config.
  * @typedef {Object} OfflineModelConfig
  * @property {OfflineTransducerModelConfig} [transducer]
@@ -251,6 +316,7 @@
  * @property {OfflineMoonshineModelConfig} [moonshine]
  * @property {OfflineTdnnModelConfig} [tdnn]
  * @property {OfflineSenseVoiceModelConfig} [senseVoice]
+ * @property {OfflineCohereTranscribeModelConfig} [cohereTranscribe]
  * @property {string} [tokens]
  * @property {number} [numThreads]
  * @property {boolean|number} [debug]
@@ -336,10 +402,18 @@
  */
 
 /**
+ * CTC FST decoder options for offline CTC models.
+ * @typedef {Object} OfflineCtcFstDecoderConfig
+ * @property {string} [graph] - Path to the decoding graph.
+ * @property {number} [maxActive] - Decoder max-active setting. 0 means 3000.
+ */
+
+/**
  * Offline recognizer config passed to createOfflineRecognizer.
  * @typedef {Object} OfflineRecognizerConfig
  * @property {FeatureConfig} [featConfig]
  * @property {OfflineModelConfig} [modelConfig]
+ * @property {OfflineCtcFstDecoderConfig} [ctcFstDecoderConfig]
  */
 
 /**
@@ -351,9 +425,19 @@
  */
 
 /**
+ * Multi-channel wave object returned by readWaveMultiChannel and used by
+ * writeWaveMultiChannel.
+ * @typedef {Object} MultiChannelWaveObject
+ * @property {Float32Array[]} samples - samples[c] holds channel c 1-D float32
+ *   samples in [-1, 1]. All channels have the same number of samples.
+ * @property {number} sampleRate - Sample rate as an integer (e.g., 44100).
+ * @see src/wave-reader.cc
+ */
+
+/**
  * Speech segment returned by Vad.front().
  * @typedef {Object} SpeechSegment
- * @property {number} start - Start index (int32) of this segment.
+ * @property {number} start - Start index (int64 sample position) of this segment.
  * @property {Float32Array} samples - Float32Array of samples.
  * @see src/vad.cc
  */
@@ -379,6 +463,14 @@
  * @property {string=} referenceText
  *
  * @property {{[key: string]: number | string}} [extra]
+ *
+ * @property {number[][]} [phonemeCodepoints] - Pre-phonemized input as
+ *           Unicode codepoints, one inner array per sentence. When set, it is
+ *           used in place of the text argument. Mutually exclusive with
+ *           `tokens`.
+ * @property {string[][]} [tokens] - Pre-tokenized input, e.g. Chinese pinyin
+ *           like "zhong1", one inner array per sentence. Mutually exclusive
+ *           with `phonemeCodepoints`.
  */
 
 
@@ -464,7 +556,8 @@
  * @property {string} [model]
  * @property {string} [lexicon]
  * @property {string} [tokens]
- * @property {string} [dataDir]
+ * @property {string} [dataDir] - Deprecated. Ignored. Use lexicon, or
+ *           phonemeCodepoints or tokens instead.
  * @property {number} [noiseScale]
  * @property {number} [noiseScaleW]
  * @property {number} [lengthScale]
@@ -476,7 +569,8 @@
  * @property {string} [vocoder]
  * @property {string} [lexicon]
  * @property {string} [tokens]
- * @property {string} [dataDir]
+ * @property {string} [dataDir] - Deprecated. Ignored. Use lexicon, or
+ *           phonemeCodepoints or tokens instead.
  * @property {number} [noiseScale]
  * @property {number} [lengthScale]
  */
@@ -486,7 +580,8 @@
  * @property {string} [model]
  * @property {string} [voices]
  * @property {string} [tokens]
- * @property {string} [dataDir]
+ * @property {string} [dataDir] - Deprecated. Ignored. Use lexicon, or
+ *           phonemeCodepoints or tokens instead.
  * @property {number} [lengthScale]
  * @property {string} [lexicon]
  * @property {string} [lang]
@@ -497,8 +592,25 @@
  * @property {string} [model]
  * @property {string} [voices]
  * @property {string} [tokens]
- * @property {string} [dataDir]
+ * @property {string} [lexicon]
+ * @property {string} [dataDir] - Deprecated. Ignored. Use lexicon, or
+ *           phonemeCodepoints or tokens instead.
  * @property {number} [lengthScale]
+ */
+
+/**
+ * @typedef {Object} OfflineTtsZipvoiceModelConfig
+ * @property {string} [tokens]
+ * @property {string} [encoder]
+ * @property {string} [decoder]
+ * @property {string} [vocoder]
+ * @property {string} [dataDir] - Deprecated. Ignored. Use lexicon, or
+ *           phonemeCodepoints or tokens instead.
+ * @property {string} [lexicon]
+ * @property {number} [featScale]
+ * @property {number} [tShift]
+ * @property {number} [targetRms]
+ * @property {number} [guidanceScale]
  */
 
 /**
@@ -520,6 +632,7 @@
  * @property {OfflineTtsMatchaModelConfig} [matcha]
  * @property {OfflineTtsKokoroModelConfig} [kokoro]
  * @property {OfflineTtsKittenModelConfig} [kitten]
+ * @property {OfflineTtsZipvoiceModelConfig} [zipvoice]
  * @property {OfflineTtsPocketModelConfig} [pocket]
  */
 
@@ -541,22 +654,61 @@
 
 /**
  * Offline Speech Denoiser model config
+ * @typedef {Object} OfflineSpeechDenoiserDpdfNetModelConfig
+ * @property {string} [model]
+ * @property {number} [attenuationLimitDb] Offline attenuation limit in dB.
+ */
+
+/**
+ * VoxLock target-speaker voice isolation model config.
+ *
+ * VoxLock keeps the voice of one speaker (the caller) and removes the other
+ * voices. The model is from https://github.com/arbazsiddiqui/voxlock
+ *
+ * @typedef {Object} OfflineSpeechDenoiserVoxLockModelConfig
+ * @property {string} [enrollModel] Path to the enroll model, e.g.,
+ *   `enroll.onnx`. It runs once on a voice sample of the speaker to keep.
+ * @property {string} [chunkModel] Path to the chunk model, e.g., `chunk.onnx`
+ *   or `chunk_int8.onnx`. It runs on each chunk of the audio.
+ * @property {string} [voiceSample] Optional. Path to a wave file with at least
+ *   3 seconds of the caller's voice. VoxLock keeps this voice and removes the
+ *   others. From a longer file, it uses the loudest 3 seconds within the first
+ *   30 seconds. A file that is shorter or cannot be read is ignored, as if it
+ *   were empty. If empty or ignored, the voice sample is taken from the input
+ *   audio: the offline denoiser uses the loudest 3 seconds in the first 15
+ *   seconds of the input, and the online denoiser passes the audio through
+ *   unchanged until 3 seconds of speech have been heard, then uses that
+ *   speech.
+ */
+
+/**
+ * Offline Speech Denoiser model config
  * @typedef {Object} OfflineSpeechDenoiserModelConfig
  * @property {OfflineSpeechDenoiserGtcrnModelConfig} [gtcrn]
+ * @property {OfflineSpeechDenoiserDpdfNetModelConfig} [dpdfnet]
+ * @property {OfflineSpeechDenoiserVoxLockModelConfig} [voxlock]
+ * @property {number} [numThreads]
+ * @property {boolean|number} [debug]
+ * @property {string} [provider]
  */
 
 /**
  * Offline Speech Denoiser configuration (partial).
  * @typedef {Object} OfflineSpeechDenoiserConfig
  * @property {OfflineSpeechDenoiserModelConfig} [model]
- * @property {number} [numThreads]
- * @property {string} [provider]
+ */
+
+/**
+ * Online Speech Denoiser configuration (partial).
+ * @typedef {Object} OnlineSpeechDenoiserConfig
+ * @property {OfflineSpeechDenoiserModelConfig} [model]
  */
 
 /**
  * Offline speaker segmentation (pyannote) model config
  * @typedef {Object} OfflineSpeakerSegmentationPyannoteModelConfig
  * @property {string} [model]
+ * @property {number} [windowShiftRatio=0.1]
  */
 
 /**
@@ -647,6 +799,7 @@
  * @property {number[]} context_scores
  * @property {number} segment
  * @property {number[]} words
+ * @property {number} num_trailing_blanks
  * @property {number} start_time
  * @property {boolean} is_final
  * @property {boolean} is_eof
@@ -689,6 +842,47 @@
 /**
  * @typedef {Object} DisplayObject
  * @property {DisplayHandle} handle
+ */
+
+/**
+ * @typedef {Object} OfflineSourceSeparationSpleeterModelConfig
+ * @property {string} vocals - Path to the vocals ONNX model.
+ * @property {string} accompaniment - Path to the accompaniment ONNX model.
+ */
+
+/**
+ * @typedef {Object} OfflineSourceSeparationUvrModelConfig
+ * @property {string} model - Path to the UVR (MDX-Net) ONNX model.
+ */
+
+/**
+ * @typedef {Object} OfflineSourceSeparationModelConfig
+ * @property {OfflineSourceSeparationSpleeterModelConfig} [spleeter]
+ * @property {OfflineSourceSeparationUvrModelConfig} [uvr]
+ * @property {number} [numThreads=1] - Positive int32 thread count.
+ * @property {boolean|number} [debug]
+ * @property {string} [provider]
+ */
+
+/**
+ * @typedef {Object} OfflineSourceSeparationConfig
+ * @property {OfflineSourceSeparationModelConfig} model
+ */
+
+/**
+ * @typedef {Object} SourceSeparationRequest
+ * @property {Float32Array[]} samples - One or two equal-length channels.
+ *   Mono input is duplicated to stereo internally by sherpa-onnx; you don't
+ *   need to duplicate it yourself. Values should be in [-1, 1].
+ * @property {number} sampleRate - Positive integer input sample rate in Hz,
+ *   no greater than 2147483647.
+ * @property {boolean} [enableExternalBuffer=true] - Set false for Electron.
+ */
+
+/**
+ * @typedef {Object} SourceSeparationOutput
+ * @property {Float32Array[][]} stems - Each stem contains separate channels.
+ * @property {number} sampleRate - Output sample rate in Hz.
  */
 
 // Export typedefs so they can be referenced by require('./types.js')

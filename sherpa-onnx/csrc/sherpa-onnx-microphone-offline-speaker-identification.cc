@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "portaudio.h"  // NOLINT
+#include "sherpa-onnx/csrc/file-utils.h"
 #include "sherpa-onnx/csrc/macros.h"
 #include "sherpa-onnx/csrc/microphone.h"
 #include "sherpa-onnx/csrc/speaker-embedding-extractor.h"
@@ -50,7 +51,7 @@ static void DetectKeyPress() {
         SHERPA_ONNX_LOGE("\nStart recording. Press Enter to stop recording");
         state = State::kRecording;
         {
-          std::lock_guard<std::mutex> lock(samples_mutex);
+          std::scoped_lock lock(samples_mutex);
           samples.clear();
         }
         break;
@@ -70,7 +71,7 @@ static int32_t RecordCallback(const void *input_buffer,
                               const PaStreamCallbackTimeInfo * /*time_info*/,
                               PaStreamCallbackFlags /*status_flags*/,
                               void *user_data) {
-  std::lock_guard<std::mutex> lock(samples_mutex);
+  std::scoped_lock lock(samples_mutex);
 
   auto p = reinterpret_cast<const float *>(input_buffer);
   samples.insert(samples.end(), p, p + frames_per_buffer);
@@ -98,7 +99,7 @@ static std::vector<std::vector<float>> ComputeEmbeddings(
 
     if (!is_ok) {
       fprintf(stderr, "Failed to read '%s'\n", f.c_str());
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
 
     auto s = extractor->CreateStream();
@@ -114,10 +115,10 @@ static std::unordered_map<std::string, std::vector<std::string>>
 ReadSpeakerFile(const std::string &filename) {
   std::unordered_map<std::string, std::vector<std::string>> ans;
 
-  std::ifstream is(filename);
+  auto is = sherpa_onnx::OpenInputFile(filename);
   if (!is) {
     fprintf(stderr, "Failed to open %s", filename.c_str());
-    exit(0);
+    SHERPA_ONNX_EXIT(0);
   }
 
   std::string line;
@@ -132,7 +133,7 @@ ReadSpeakerFile(const std::string &filename) {
     iss >> name >> path;
     if (!iss || !iss.eof() || name.empty() || path.empty()) {
       fprintf(stderr, "Invalid line: %s\n", line.c_str());
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
     ans[name].push_back(path);
   }
@@ -199,7 +200,7 @@ Note that `zh` means Chinese, while `en` means English.
     fprintf(stderr,
             "This program does not support any positional arguments.\n");
     po.PrintUsage();
-    exit(EXIT_FAILURE);
+    SHERPA_ONNX_EXIT(EXIT_FAILURE);
   }
 
   fprintf(stderr, "%s\n", config.ToString().c_str());
@@ -230,7 +231,7 @@ Note that `zh` means Chinese, while `en` means English.
     fprintf(stderr, "If you are using Linux, please switch to \n");
     fprintf(stderr,
             " ./bin/sherpa-onnx-alsa-offline-speaker-identification \n");
-    exit(EXIT_FAILURE);
+    SHERPA_ONNX_EXIT(EXIT_FAILURE);
   }
 
   const char *pDeviceIndex = std::getenv("SHERPA_ONNX_MIC_DEVICE");
@@ -244,14 +245,14 @@ Note that `zh` means Chinese, while `en` means English.
   float mic_sample_rate = 16000;
   const char *pSampleRateStr = std::getenv("SHERPA_ONNX_MIC_SAMPLE_RATE");
   if (pSampleRateStr) {
-    fprintf(stderr, "Use sample rate %f for mic\n", mic_sample_rate);
     mic_sample_rate = atof(pSampleRateStr);
+    fprintf(stderr, "Use sample rate %f for mic\n", mic_sample_rate);
   }
 
   if (!mic.OpenDevice(device_index, mic_sample_rate, 1, RecordCallback,
                       nullptr /* user_data */)) {
     fprintf(stderr, "portaudio error: %d\n", device_index);
-    exit(EXIT_FAILURE);
+    SHERPA_ONNX_EXIT(EXIT_FAILURE);
   }
 
   std::thread t(DetectKeyPress);
@@ -264,7 +265,7 @@ Note that `zh` means Chinese, while `en` means English.
       case State::kComputing: {
         std::vector<float> buf;
         {
-          std::lock_guard<std::mutex> lock(samples_mutex);
+          std::scoped_lock lock(samples_mutex);
           buf = std::move(samples);
         }
 

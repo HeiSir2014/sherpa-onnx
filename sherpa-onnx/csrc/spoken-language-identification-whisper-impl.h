@@ -17,6 +17,7 @@
 #endif
 
 #include "sherpa-onnx/csrc/offline-whisper-model.h"
+#include "sherpa-onnx/csrc/macros.h"
 #include "sherpa-onnx/csrc/spoken-language-identification-impl.h"
 #include "sherpa-onnx/csrc/transpose.h"
 
@@ -92,7 +93,8 @@ class SpokenLanguageIdentificationWhisperImpl
 
     try {
       auto cross_kv = model_->ForwardEncoder(std::move(mel));
-      int32_t lang_id = model_->DetectLanguage(cross_kv.first, cross_kv.second);
+      int32_t lang_id =
+          model_->DetectLanguage(cross_kv.first, cross_kv.second, {});
       const auto &id2lang = model_->GetID2Lang();
       if (id2lang.count(lang_id)) {
         return id2lang.at(lang_id);
@@ -119,7 +121,7 @@ class SpokenLanguageIdentificationWhisperImpl
           "Only whisper multilingual models can be used for spoken language "
           "identification. Given: %s,%s",
           config_.whisper.encoder.c_str(), config_.whisper.decoder.c_str());
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
   }
 

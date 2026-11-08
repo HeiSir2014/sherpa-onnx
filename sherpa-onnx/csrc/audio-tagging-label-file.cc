@@ -20,7 +20,11 @@
 namespace sherpa_onnx {
 
 AudioTaggingLabels::AudioTaggingLabels(const std::string &filename) {
-  std::ifstream is(filename);
+  auto is = OpenInputFile(filename);
+  if (!is) {
+    SHERPA_ONNX_LOGE("Open label file failed: '%s'", filename.c_str());
+    SHERPA_ONNX_EXIT(-1);
+  }
   Init(is);
 }
 
@@ -56,11 +60,10 @@ void AudioTaggingLabels::Init(std::istream &is) {
     std::getline(input2, tmp, ',');
     std::getline(input2, name);
 
-    std::size_t pos{};
-    int32_t i = std::stoi(index, &pos);
-    if (index.empty() || pos != index.size()) {
+    int32_t i = ToIntOrDefault(index, -1);
+    if (i == -1) {
       SHERPA_ONNX_LOGE("Invalid line: %s", line.c_str());
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
 
     if (i != static_cast<int32_t>(names_.size())) {
@@ -71,7 +74,7 @@ void AudioTaggingLabels::Init(std::istream &is) {
     }
     if (name.empty() || name.front() != '"' || name.back() != '"') {
       SHERPA_ONNX_LOGE("Invalid line: %s", line.c_str());
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
 
     names_.emplace_back(name.begin() + 1, name.end() - 1);

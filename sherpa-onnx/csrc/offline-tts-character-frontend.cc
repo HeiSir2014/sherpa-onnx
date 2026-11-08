@@ -41,7 +41,11 @@ static std::unordered_map<char32_t, int32_t> ReadTokens(std::istream &is) {
     std::istringstream iss(line);
     iss >> sym;
     if (iss.eof()) {
-      id = atoi(sym.c_str());
+      id = ToIntOrDefault(sym, -1);
+      if (id == -1) {
+        SHERPA_ONNX_LOGE("Error: %s", line.c_str());
+        continue;
+      }
       sym = " ";
     } else {
       iss >> id;
@@ -51,7 +55,7 @@ static std::unordered_map<char32_t, int32_t> ReadTokens(std::istream &is) {
     iss >> std::ws;
     if (!iss.eof()) {
       SHERPA_ONNX_LOGE("Error when reading tokens: %s", line.c_str());
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
 
     // Form models from coqui-ai/TTS, we have saved the IDs of the following
@@ -64,7 +68,7 @@ static std::unordered_map<char32_t, int32_t> ReadTokens(std::istream &is) {
     if (s.size() != 1) {
       SHERPA_ONNX_LOGE("Error when reading tokens at Line %s. size: %d",
                        line.c_str(), static_cast<int32_t>(s.size()));
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
 
     char32_t c = s[0];
@@ -72,7 +76,7 @@ static std::unordered_map<char32_t, int32_t> ReadTokens(std::istream &is) {
     if (token2id.count(c)) {
       SHERPA_ONNX_LOGE("Duplicated token %s. Line %s. Existing ID: %d",
                        sym.c_str(), line.c_str(), token2id.at(c));
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
 
     token2id.insert({c, id});
@@ -84,7 +88,7 @@ static std::unordered_map<char32_t, int32_t> ReadTokens(std::istream &is) {
 OfflineTtsCharacterFrontend::OfflineTtsCharacterFrontend(
     const std::string &tokens, const OfflineTtsVitsModelMetaData &meta_data)
     : meta_data_(meta_data) {
-  std::ifstream is(tokens);
+  auto is = OpenInputFile(tokens);
   token2id_ = ReadTokens(is);
 }
 

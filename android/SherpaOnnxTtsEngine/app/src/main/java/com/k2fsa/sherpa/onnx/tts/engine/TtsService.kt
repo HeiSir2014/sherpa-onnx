@@ -1,6 +1,7 @@
 package com.k2fsa.sherpa.onnx.tts.engine
 
 import android.media.AudioFormat
+import com.k2fsa.sherpa.onnx.GenerationConfig
 import android.speech.tts.SynthesisCallback
 import android.speech.tts.SynthesisRequest
 import android.speech.tts.TextToSpeech
@@ -157,10 +158,19 @@ class TtsService : TextToSpeechService() {
         }
 
         Log.i(TAG, "text: $text")
-        tts.generateWithCallback(
-            text = text,
-            sid = TtsEngine.speakerId,
-            speed = engineSpeed,
+        val genConfig = GenerationConfig(sid = TtsEngine.speakerId, speed = engineSpeed)
+        var genText = text
+        if (TtsEngine.usePhonemize) {
+            // Phonemize outside of sherpa-onnx with piper-phonemize and pass
+            // the phoneme codepoints. The espeak-ng voice is taken from the
+            // model metadata.
+            genConfig.phonemeCodepoints = TtsEngine.phonemize(text)
+            // The text has already been phonemized; pass an empty string.
+            genText = ""
+        }
+        tts.generateWithConfigAndCallback(
+            text = genText,
+            config = genConfig,
             callback = ttsCallback,
         )
 

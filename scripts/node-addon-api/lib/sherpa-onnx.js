@@ -1,4 +1,5 @@
 /** @typedef {import('./types').WaveObject} WaveObject */
+/** @typedef {import('./types').MultiChannelWaveObject} MultiChannelWaveObject */
 /**
  * @typedef {import('./types').OnlineRecognizerResult} OnlineRecognizerResult
  */
@@ -18,6 +19,9 @@ const punct = require('./punctuation.js');
 const kws = require('./keyword-spotter.js');
 const sd = require('./non-streaming-speaker-diarization.js');
 const speech_denoiser = require('./non-streaming-speech-denoiser.js');
+const online_speech_denoiser = require('./online-speech-denoiser.js');
+const resampler = require('./resampler.js');
+const source_separation = require('./offline-source-separation.js');
 
 module.exports = {
   OnlineRecognizer : streaming_asr.OnlineRecognizer,
@@ -26,6 +30,8 @@ module.exports = {
   GenerationConfig : non_streaming_tts.GenerationConfig,
   readWave : addon.readWave,
   writeWave : addon.writeWave,
+  readWaveMultiChannel : addon.readWaveMultiChannel,
+  writeWaveMultiChannel : addon.writeWaveMultiChannel,
   Display : streaming_asr.Display,
   Vad : vad.Vad,
   CircularBuffer : vad.CircularBuffer,
@@ -38,7 +44,11 @@ module.exports = {
   KeywordSpotter : kws.KeywordSpotter,
   OfflineSpeakerDiarization : sd.OfflineSpeakerDiarization,
   OfflineSpeechDenoiser : speech_denoiser.OfflineSpeechDenoiser,
+  OnlineSpeechDenoiser : online_speech_denoiser.OnlineSpeechDenoiser,
+  LinearResampler : resampler.LinearResampler,
+  OfflineSourceSeparation : source_separation.OfflineSourceSeparation,
   version : addon.version,
   gitSha1 : addon.gitSha1,
   gitDate : addon.gitDate,
+  onnxruntimeVersion : addon.onnxruntimeVersion,
 }

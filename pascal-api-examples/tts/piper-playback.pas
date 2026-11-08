@@ -50,10 +50,11 @@ var
   Param: TPaStreamParameters;
   Stream: PPaStream;
   Wave: TSherpaOnnxWave;
+  GenerationConfig: TSherpaOnnxGenerationConfig;
 
 function GenerateCallback(
       Samples: pcfloat; N: cint32;
-      Arg: Pointer): cint; cdecl;
+      Progress: cfloat; Arg: Pointer): cint; cdecl;
 begin
   EnterCriticalSection(CriticalSection);
   try
@@ -116,7 +117,7 @@ var
 begin
   Config.Model.Vits.Model := './vits-piper-en_US-libritts_r-medium/en_US-libritts_r-medium.onnx';
   Config.Model.Vits.Tokens := './vits-piper-en_US-libritts_r-medium/tokens.txt';
-  Config.Model.Vits.DataDir := './vits-piper-en_US-libritts_r-medium/espeak-ng-data';
+  Config.Model.Vits.Lexicon := './lexicon-en-us.txt';
   Config.Model.NumThreads := 1;
   Config.Model.Debug := False;
   Config.MaxNumSentences := 1;
@@ -206,8 +207,13 @@ begin
 
   Text := 'Today as always, men fall into two groups: slaves and free men. Whoever does not have two-thirds of his day for himself, is a slave, whatever he may be: a statesman, a businessman, an official, or a scholar.';
 
-  Audio :=  Tts.Generate(Text, SpeakerId, Speed,
-    PSherpaOnnxGeneratedAudioCallbackWithArg(@GenerateCallback), nil);
+  GenerationConfig := Default(TSherpaOnnxGenerationConfig);
+  GenerationConfig.SilenceScale := 0.2;
+  GenerationConfig.Speed := Speed;
+  GenerationConfig.Sid := SpeakerId;
+
+  Audio :=  Tts.Generate(Text, GenerationConfig,
+    @GenerateCallback, nil);
   FinishedGeneration := True;
   SherpaOnnxWriteWave('./libritts_r-generated.wav', Audio.Samples, Audio.SampleRate);
   WriteLn('Saved to ./libritts_r-generated.wav');
@@ -235,4 +241,3 @@ begin
       Exit;
     end;
 end.
-

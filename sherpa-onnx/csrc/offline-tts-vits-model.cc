@@ -23,6 +23,7 @@
 #include "sherpa-onnx/csrc/macros.h"
 #include "sherpa-onnx/csrc/onnx-utils.h"
 #include "sherpa-onnx/csrc/session.h"
+#include "sherpa-onnx/csrc/text-utils.h"
 
 namespace sherpa_onnx {
 
@@ -33,8 +34,9 @@ class OfflineTtsVitsModel::Impl {
         env_(ORT_LOGGING_LEVEL_ERROR),
         sess_opts_(GetSessionOptions(config)),
         allocator_{} {
-    auto buf = ReadFile(config.vits.model);
-    Init(buf.data(), buf.size());
+    sess_ = std::make_unique<Ort::Session>(
+        env_, SHERPA_ONNX_TO_ORT_PATH(config.vits.model), sess_opts_);
+    Init(nullptr, 0);
   }
 
   template <typename Manager>
@@ -47,12 +49,14 @@ class OfflineTtsVitsModel::Impl {
     Init(buf.data(), buf.size());
   }
 
-  Ort::Value Run(Ort::Value x, int64_t sid, float speed) {
+  Ort::Value Run(Ort::Value x, int64_t sid, float speed, int64_t emotion_id) {
     if (meta_data_.is_piper || meta_data_.is_coqui) {
       return RunVitsPiperOrCoqui(std::move(x), sid, speed);
+    } else if (meta_data_.is_inflect) {
+      return RunVitsInflect(std::move(x), speed);
     }
 
-    return RunVits(std::move(x), sid, speed);
+    return RunVits(std::move(x), sid, speed, emotion_id);
   }
 
   Ort::Value Run(Ort::Value x, Ort::Value tones, int64_t sid, float speed) {
@@ -68,7 +72,7 @@ class OfflineTtsVitsModel::Impl {
     if (x_shape[0] != 1) {
       SHERPA_ONNX_LOGE("Support only batch_size == 1. Given: %d",
                        static_cast<int32_t>(x_shape[0]));
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
 
     int64_t len = x_shape[1];
@@ -119,8 +123,15 @@ class OfflineTtsVitsModel::Impl {
 
  private:
   void Init(void *model_data, size_t model_data_length) {
-    sess_ = std::make_unique<Ort::Session>(env_, model_data, model_data_length,
-                                           sess_opts_);
+    if (model_data) {
+      sess_ = std::make_unique<Ort::Session>(env_, model_data,
+                                             model_data_length, sess_opts_);
+    } else if (!sess_) {
+      SHERPA_ONNX_LOGE(
+          "Please pass model data or initialize the session outside of "
+          "this function");
+      SHERPA_ONNX_EXIT(-1);
+    }
 
     GetInputNames(sess_.get(), &input_names_, &input_names_ptr_);
 
@@ -162,6 +173,8 @@ class OfflineTtsVitsModel::Impl {
                                             0);
     SHERPA_ONNX_READ_META_DATA_WITH_DEFAULT(meta_data_.version, "version", 0);
     SHERPA_ONNX_READ_META_DATA(meta_data_.num_speakers, "n_speakers");
+    SHERPA_ONNX_READ_META_DATA_WITH_DEFAULT(meta_data_.num_emotions,
+                                            "num_emotions", 0);
     SHERPA_ONNX_READ_META_DATA_STR_WITH_DEFAULT(meta_data_.punctuations,
                                                 "punctuation", "");
     SHERPA_ONNX_READ_META_DATA_STR(meta_data_.language, "language");
@@ -178,6 +191,7 @@ class OfflineTtsVitsModel::Impl {
     SHERPA_ONNX_READ_META_DATA_WITH_DEFAULT(meta_data_.use_eos_bos,
                                             "use_eos_bos", 1);
     SHERPA_ONNX_READ_META_DATA_WITH_DEFAULT(meta_data_.pad_id, "pad_id", 0);
+    SHERPA_ONNX_READ_META_DATA_WITH_DEFAULT(meta_data_.use_g2pw, "has_g2pw", 0);
 
     std::string comment;
     SHERPA_ONNX_READ_META_DATA_STR(comment, "comment");
@@ -202,12 +216,18 @@ class OfflineTtsVitsModel::Impl {
             "Please download the latest MeloTTS model and retry. Current "
             "version: %d. Expected version: %d",
             meta_data_.version, expected_version);
-        exit(-1);
+        SHERPA_ONNX_EXIT(-1);
       }
 
       // NOTE(fangjun):
       // version 0 is the first version
       // version 2: add jieba=1 to the metadata
+    }
+
+    if (comment.find("Inflect") != std::string::npos) {
+      meta_data_.is_inflect = true;
+      // ignore its add_blank from the meta data
+      meta_data_.add_blank = 0;
     }
   }
 
@@ -219,7 +239,7 @@ class OfflineTtsVitsModel::Impl {
     if (x_shape[0] != 1) {
       SHERPA_ONNX_LOGE("Support only batch_size == 1. Given: %d",
                        static_cast<int32_t>(x_shape[0]));
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
     }
 
     int64_t len = x_shape[1];
@@ -272,7 +292,7 @@ class OfflineTtsVitsModel::Impl {
     return std::move(out[0]);
   }
 
-  Ort::Value RunVits(Ort::Value x, int64_t sid, float speed) {
+  Ort::Value RunVitsInflect(Ort::Value x, float speed) {
     auto memory_info =
         Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault);
 
@@ -280,7 +300,53 @@ class OfflineTtsVitsModel::Impl {
     if (x_shape[0] != 1) {
       SHERPA_ONNX_LOGE("Support only batch_size == 1. Given: %d",
                        static_cast<int32_t>(x_shape[0]));
-      exit(-1);
+      SHERPA_ONNX_EXIT(-1);
+    }
+
+    int64_t len = x_shape[1];
+    int64_t len_shape = 1;
+
+    Ort::Value x_length =
+        Ort::Value::CreateTensor(memory_info, &len, 1, &len_shape, 1);
+
+    int64_t scale_shape = 1;
+    float noise_scale = config_.vits.noise_scale;
+    float length_scale = config_.vits.length_scale;
+
+    if (speed != 1 && speed > 0) {
+      length_scale = 1. / speed;
+    }
+
+    Ort::Value noise_scale_tensor =
+        Ort::Value::CreateTensor(memory_info, &noise_scale, 1, &scale_shape, 1);
+
+    Ort::Value length_scale_tensor = Ort::Value::CreateTensor(
+        memory_info, &length_scale, 1, &scale_shape, 1);
+
+    std::vector<Ort::Value> inputs;
+    inputs.reserve(4);
+    inputs.push_back(std::move(x));
+    inputs.push_back(std::move(x_length));
+    inputs.push_back(std::move(noise_scale_tensor));
+    inputs.push_back(std::move(length_scale_tensor));
+
+    auto out =
+        sess_->Run({}, input_names_ptr_.data(), inputs.data(), inputs.size(),
+                   output_names_ptr_.data(), output_names_ptr_.size());
+
+    return std::move(out[0]);
+  }
+
+  Ort::Value RunVits(Ort::Value x, int64_t sid, float speed,
+                     int64_t emotion_id) {
+    auto memory_info =
+        Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault);
+
+    std::vector<int64_t> x_shape = x.GetTensorTypeAndShapeInfo().GetShape();
+    if (x_shape[0] != 1) {
+      SHERPA_ONNX_LOGE("Support only batch_size == 1. Given: %d",
+                       static_cast<int32_t>(x_shape[0]));
+      SHERPA_ONNX_EXIT(-1);
     }
 
     int64_t len = x_shape[1];
@@ -310,17 +376,25 @@ class OfflineTtsVitsModel::Impl {
     Ort::Value sid_tensor =
         Ort::Value::CreateTensor(memory_info, &sid, 1, &scale_shape, 1);
 
+    Ort::Value emotion_tensor =
+        Ort::Value::CreateTensor(memory_info, &emotion_id, 1, &scale_shape, 1);
+
     std::vector<Ort::Value> inputs;
-    inputs.reserve(6);
+    inputs.reserve(7);
     inputs.push_back(std::move(x));
     inputs.push_back(std::move(x_length));
     inputs.push_back(std::move(noise_scale_tensor));
     inputs.push_back(std::move(length_scale_tensor));
     inputs.push_back(std::move(noise_scale_w_tensor));
 
-    if (input_names_.size() == 6 &&
-        (input_names_.back() == "sid" || input_names_.back() == "speaker")) {
+    if (input_names_.size() >= 6 &&
+        (input_names_[5] == "sid" || input_names_[5] == "speaker")) {
       inputs.push_back(std::move(sid_tensor));
+    }
+
+    if (meta_data_.num_emotions > 0 && input_names_.size() >= 7 &&
+        (input_names_[6] == "emotion_id" || input_names_[6] == "emotion")) {
+      inputs.push_back(std::move(emotion_tensor));
     }
 
     auto out =
@@ -358,8 +432,9 @@ OfflineTtsVitsModel::OfflineTtsVitsModel(Manager *mgr,
 OfflineTtsVitsModel::~OfflineTtsVitsModel() = default;
 
 Ort::Value OfflineTtsVitsModel::Run(Ort::Value x, int64_t sid /*=0*/,
-                                    float speed /*= 1.0*/) {
-  return impl_->Run(std::move(x), sid, speed);
+                                    float speed /*= 1.0*/,
+                                    int64_t emotion_id /*= 0*/) {
+  return impl_->Run(std::move(x), sid, speed, emotion_id);
 }
 
 Ort::Value OfflineTtsVitsModel::Run(Ort::Value x, Ort::Value tones,

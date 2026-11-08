@@ -3,34 +3,22 @@
 # Note: This script is to build sherpa-onnx for flutter/dart, which requires
 # us to use shared libraries for sherpa-onnx.
 #
-# Note: We still use static libraries for onnxruntime.
-
 set -e
 
 dir=build-ios-shared
 mkdir -p $dir
 cd $dir
-onnxruntime_version=1.17.1
+onnxruntime_version=${SHERPA_ONNX_ONNXRUNTIME_VERSION:-1.28.2}
 onnxruntime_dir=ios-onnxruntime/$onnxruntime_version
 
-SHERPA_ONNX_GITHUB=github.com
+CMAKE_VERBOSE_MAKEFILE=${CMAKE_VERBOSE_MAKEFILE:-OFF}
 
-if [ "$SHERPA_ONNX_GITHUB_MIRROW" == true ]; then
-    SHERPA_ONNX_GITHUB=hub.nuaa.cf
-fi
-
-if [ ! -z CMAKE_VERBOSE_MAKEFILE ]; then
-  CMAKE_VERBOSE_MAKEFILE=ON
-else
-  CMAKE_VERBOSE_MAKEFILE=OFF
-fi
-
-if [ ! -f $onnxruntime_dir/onnxruntime.xcframework/ios-arm64/onnxruntime.a ]; then
+if [ ! -f $onnxruntime_dir/onnxruntime.xcframework/ios-arm64/onnxruntime.framework/onnxruntime ]; then
   mkdir -p $onnxruntime_dir
   pushd $onnxruntime_dir
-  wget -c https://${SHERPA_ONNX_GITHUB}/csukuangfj/onnxruntime-libs/releases/download/v${onnxruntime_version}/onnxruntime.xcframework-${onnxruntime_version}.tar.bz2
-  tar xvf onnxruntime.xcframework-${onnxruntime_version}.tar.bz2
-  rm onnxruntime.xcframework-${onnxruntime_version}.tar.bz2
+  wget -c https://github.com/csukuangfj/onnxruntime-libs/releases/download/v${onnxruntime_version}/onnxruntime-ios-shared-xcframework-${onnxruntime_version}.xcframework.zip
+  unzip onnxruntime-ios-shared-xcframework-${onnxruntime_version}.xcframework.zip
+  rm onnxruntime-ios-shared-xcframework-${onnxruntime_version}.xcframework.zip
   cd ..
   ln -sf $onnxruntime_version/onnxruntime.xcframework .
   popd
@@ -40,7 +28,7 @@ fi
 echo "Building for simulator (x86_64)"
 
 export SHERPA_ONNXRUNTIME_LIB_DIR=$PWD/ios-onnxruntime/onnxruntime.xcframework/ios-arm64_x86_64-simulator
-export SHERPA_ONNXRUNTIME_INCLUDE_DIR=$PWD/ios-onnxruntime/onnxruntime.xcframework/Headers
+export SHERPA_ONNXRUNTIME_INCLUDE_DIR=$PWD/ios-onnxruntime/onnxruntime.xcframework/ios-arm64_x86_64-simulator/onnxruntime.framework/Headers
 
 echo "SHERPA_ONNXRUNTIME_LIB_DIR: $SHERPA_ONNXRUNTIME_LIB_DIR"
 echo "SHERPA_ONNXRUNTIME_INCLUDE_DIR $SHERPA_ONNXRUNTIME_INCLUDE_DIR"
@@ -52,10 +40,6 @@ echo "SHERPA_ONNXRUNTIME_INCLUDE_DIR $SHERPA_ONNXRUNTIME_INCLUDE_DIR"
 if [[ ! -f build/simulator_x86_64/install/lib/libsherpa-onnx-c-api.dylib ]]; then
   cmake \
     -DSHERPA_ONNX_ENABLE_BINARY=OFF \
-    -DBUILD_PIPER_PHONMIZE_EXE=OFF \
-    -DBUILD_PIPER_PHONMIZE_TESTS=OFF \
-    -DBUILD_ESPEAK_NG_EXE=OFF \
-    -DBUILD_ESPEAK_NG_TESTS=OFF \
     -S .. -D CMAKE_VERBOSE_MAKEFILE=$CMAKE_VERBOSE_MAKEFILE \
     -DCMAKE_TOOLCHAIN_FILE=./toolchains/ios.toolchain.cmake \
     -DPLATFORM=SIMULATOR64 \
@@ -85,10 +69,6 @@ echo "Building for simulator (arm64)"
 if [[ ! -f build/simulator_arm64/install/lib/libsherpa-onnx-c-api.dylib ]]; then
   cmake \
     -DSHERPA_ONNX_ENABLE_BINARY=OFF \
-    -DBUILD_PIPER_PHONMIZE_EXE=OFF \
-    -DBUILD_PIPER_PHONMIZE_TESTS=OFF \
-    -DBUILD_ESPEAK_NG_EXE=OFF \
-    -DBUILD_ESPEAK_NG_TESTS=OFF \
     -S .. -D CMAKE_VERBOSE_MAKEFILE=$CMAKE_VERBOSE_MAKEFILE \
     -DCMAKE_TOOLCHAIN_FILE=./toolchains/ios.toolchain.cmake \
     -DPLATFORM=SIMULATORARM64 \
@@ -117,13 +97,10 @@ echo "Building for arm64"
 
 if [[ ! -f build/os64/install/lib/libsherpa-onnx-c-api.dylib ]]; then
   export SHERPA_ONNXRUNTIME_LIB_DIR=$PWD/ios-onnxruntime/onnxruntime.xcframework/ios-arm64
+  export SHERPA_ONNXRUNTIME_INCLUDE_DIR=$PWD/ios-onnxruntime/onnxruntime.xcframework/ios-arm64/onnxruntime.framework/Headers
 
   cmake \
     -DSHERPA_ONNX_ENABLE_BINARY=OFF \
-    -DBUILD_PIPER_PHONMIZE_EXE=OFF \
-    -DBUILD_PIPER_PHONMIZE_TESTS=OFF \
-    -DBUILD_ESPEAK_NG_EXE=OFF \
-    -DBUILD_ESPEAK_NG_TESTS=OFF \
     -S .. -D CMAKE_VERBOSE_MAKEFILE=$CMAKE_VERBOSE_MAKEFILE \
     -DCMAKE_TOOLCHAIN_FILE=./toolchains/ios.toolchain.cmake \
     -DPLATFORM=OS64 \
@@ -166,134 +143,82 @@ lipo \
   -output \
     ios-arm64_x86_64-simulator/libsherpa-onnx-c-api.dylib
 
-pushd ios-arm64
-rm -rf sherpa_onnx.framework
-mkdir sherpa_onnx.framework
+rm -rf sherpa-onnx.xcframework
 
-lipo \
-  -create \
-    libsherpa-onnx-c-api.dylib \
-  -output \
-    sherpa_onnx
+# Create framework bundles (like onnxruntime does) so SPM can resolve the module
+create_framework() {
+  local lib_path=$1
+  local output_dir=$2
 
-mv sherpa_onnx sherpa_onnx.framework/
-cd sherpa_onnx.framework
+  local fw_dir=$output_dir/SherpaOnnxC.framework
+  rm -rf $fw_dir
 
-install_name_tool \
-  -change @rpath/libsherpa-onnx-c-api.dylib @rpath/sherpa_onnx.framework/sherpa_onnx \
-  sherpa_onnx
+  mkdir -p $fw_dir/Headers/sherpa-onnx/c-api
+  mkdir -p $fw_dir/Modules
 
-install_name_tool \
-  -id "@rpath/sherpa_onnx.framework/sherpa_onnx" \
-  sherpa_onnx
+  cp $lib_path $fw_dir/SherpaOnnxC
+  cp build/os64/install/include/sherpa-onnx/c-api/c-api.h $fw_dir/Headers/sherpa-onnx/c-api/
 
-chmod +x sherpa_onnx
-popd
+  cat > $fw_dir/Modules/module.modulemap << 'MEOF'
+framework module SherpaOnnxC {
+  header "sherpa-onnx/c-api/c-api.h"
+  export *
+}
+MEOF
 
-pushd ios-arm64_x86_64-simulator
-rm -rf sherpa_onnx.framework
-mkdir sherpa_onnx.framework
-
-lipo \
-  -create \
-    libsherpa-onnx-c-api.dylib \
-  -output \
-    sherpa_onnx
-
-mv sherpa_onnx sherpa_onnx.framework/
-cd sherpa_onnx.framework
-install_name_tool \
-  -change @rpath/libsherpa-onnx-c-api.dylib @rpath/sherpa_onnx.framework/sherpa_onnx \
-  sherpa_onnx
-
-install_name_tool \
-  -id "@rpath/sherpa_onnx.framework/sherpa_onnx" \
-  sherpa_onnx
-
-chmod +x sherpa_onnx
-popd
-
-for d in ios-arm64_x86_64-simulator ios-arm64; do
-  dst=$d/sherpa_onnx.framework
-
-  # The Info.plist is modified from
-  # https://github.com/Spicely/flutter_openim_sdk_ffi/blob/main/ios/openim_sdk_ffi.framework/Info.plist
-  cat >$dst/Info.plist <<EOF
+  cat > $fw_dir/Info.plist << 'PEOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleName</key>
-	<string>sherpa_onnx</string>
-	<key>DTSDKName</key>
-	<string>iphoneos17.0</string>
-	<key>DTXcode</key>
-	<string>1501</string>
-	<key>DTSDKBuild</key>
-	<string>21A326</string>
-	<key>CFBundleDevelopmentRegion</key>
-	<string>en</string>
-	<key>CFBundleVersion</key>
-	<string>1</string>
-	<key>BuildMachineOSBuild</key>
-	<string>23B81</string>
-	<key>DTPlatformName</key>
-	<string>iphoneos</string>
-	<key>CFBundlePackageType</key>
-	<string>FMWK</string>
-	<key>CFBundleShortVersionString</key>
-	<string>1.12.29</string>
-	<key>CFBundleSupportedPlatforms</key>
-	<array>
-		<string>iPhoneOS</string>
-	</array>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundleExecutable</key>
-	<string>sherpa_onnx</string>
-	<key>DTCompiler</key>
-	<string>com.apple.compilers.llvm.clang.1_0</string>
-	<key>UIRequiredDeviceCapabilities</key>
-	<array>
-		<string>arm64</string>
-	</array>
-	<key>MinimumOSVersion</key>
-	<string>13.0</string>
-	<key>CFBundleIdentifier</key>
-	<string>com.k2fsa.sherpa.onnx</string>
-	<key>UIDeviceFamily</key>
-	<array>
-		<integer>1</integer>
-		<integer>2</integer>
-	</array>
-	<key>CFBundleSignature</key>
-	<string>????</string>
-	<key>DTPlatformVersion</key>
-	<string>17.0</string>
-	<key>DTXcodeBuild</key>
-	<string>15A507</string>
-	<key>DTPlatformBuild</key>
-	<string>21A326</string>
-	<key>SupportedArchitectures</key>
-	<array>
-		<string>arm64</string>
-		<string>x86_64</string>
-	</array>
-	<key>SupportedPlatform</key>
-	<string>ios</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.k2-fsa.sherpa-onnx</string>
+  <key>CFBundleName</key>
+  <string>SherpaOnnxC</string>
+  <key>CFBundlePackageType</key>
+  <string>FMWK</string>
+  <key>CFBundleExecutable</key>
+  <string>SherpaOnnxC</string>
+  <key>CFBundleVersion</key>
+  <string>20261026</string>
+  <key>CFBundleShortVersionString</key>
+  <string>2.0.1</string>
+  <key>MinimumOSVersion</key>
+  <string>13.0</string>
+  <key>CFBundleSupportedPlatforms</key>
+  <array>
+    <string>iPhoneOS</string>
+  </array>
 </dict>
 </plist>
-EOF
-done
+PEOF
 
-rm -rf sherpa_onnx.xcframework
+  # Fix dylib install name
+  install_name_tool -id @rpath/SherpaOnnxC.framework/SherpaOnnxC $fw_dir/SherpaOnnxC
+
+  # Ad-hoc sign the framework binary so Xcode can embed and re-sign it
+  codesign --force --sign - $fw_dir/SherpaOnnxC
+}
+
+create_framework ios-arm64/libsherpa-onnx-c-api.dylib ios-arm64
+create_framework ios-arm64_x86_64-simulator/libsherpa-onnx-c-api.dylib ios-arm64_x86_64-simulator
+
 xcodebuild -create-xcframework \
-  -framework ios-arm64/sherpa_onnx.framework \
-  -framework ios-arm64_x86_64-simulator/sherpa_onnx.framework \
-  -output sherpa_onnx.xcframework
+  -framework "ios-arm64/SherpaOnnxC.framework" \
+  -framework "ios-arm64_x86_64-simulator/SherpaOnnxC.framework" \
+  -output sherpa-onnx.xcframework
 
-cd sherpa_onnx.xcframework
+cd sherpa-onnx.xcframework
 echo "PWD: $PWD"
 ls -lh
 echo "---"
 ls -lh */*
+
+cd ..
+
+SHERPA_ONNX_VERSION=v$(grep "SHERPA_ONNX_VERSION" ../CMakeLists.txt | cut -d " " -f 2 | cut -d '"' -f 2)
+rm -f sherpa-onnx-${SHERPA_ONNX_VERSION}-ios-shared.xcframework.zip
+zip -r -y sherpa-onnx-${SHERPA_ONNX_VERSION}-ios-shared.xcframework.zip sherpa-onnx.xcframework
+
+echo "Checksum:"
+swift package compute-checksum sherpa-onnx-${SHERPA_ONNX_VERSION}-ios-shared.xcframework.zip | tee checksum.txt

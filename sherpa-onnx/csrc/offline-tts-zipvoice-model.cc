@@ -38,11 +38,13 @@ class OfflineTtsZipvoiceModel::Impl {
         env_(ORT_LOGGING_LEVEL_ERROR),
         sess_opts_(GetSessionOptions(config)),
         allocator_{} {
-    auto buf = ReadFile(config.zipvoice.encoder);
-    InitEncoder(buf.data(), buf.size());
+    encoder_sess_ = std::make_unique<Ort::Session>(
+        env_, SHERPA_ONNX_TO_ORT_PATH(config.zipvoice.encoder), sess_opts_);
+    InitEncoder(nullptr, 0);
 
-    buf = ReadFile(config.zipvoice.decoder);
-    InitDecoder(buf.data(), buf.size());
+    decoder_sess_ = std::make_unique<Ort::Session>(
+        env_, SHERPA_ONNX_TO_ORT_PATH(config.zipvoice.decoder), sess_opts_);
+    InitDecoder(nullptr, 0);
   }
 
   template <typename Manager>
@@ -63,7 +65,8 @@ class OfflineTtsZipvoiceModel::Impl {
   }
 
   Ort::Value Run(Ort::Value tokens, Ort::Value prompt_tokens,
-                 Ort::Value prompt_features, float speed, int32_t num_steps) {
+                 Ort::Value prompt_features, float speed, int32_t num_steps,
+                 float t_shift, float guidance_scale) {
     std::vector<int64_t> tokens_shape =
         tokens.GetTensorTypeAndShapeInfo().GetShape();
 
@@ -81,6 +84,16 @@ class OfflineTtsZipvoiceModel::Impl {
     std::vector<int64_t> text_cond_shape =
         text_condition.GetTensorTypeAndShapeInfo().GetShape();
     int64_t num_frames = text_cond_shape[1];
+
+    if (num_frames <= prompt_feat_len) {
+      SHERPA_ONNX_LOGE(
+          "num_frames (%d) <= prompt_feat_len (%d) with speed %.3f. The text "
+          "is too short for this speed. Please use a smaller speed or a "
+          "shorter reference audio and text.",
+          static_cast<int32_t>(num_frames),
+          static_cast<int32_t>(prompt_feat_len), speed);
+      return Ort::Value{nullptr};
+    }
 
     int64_t feat_dim = meta_data_.feat_dim;
 
@@ -107,9 +120,6 @@ class OfflineTtsZipvoiceModel::Impl {
     Ort::Value speech_condition = Ort::Value::CreateTensor<float>(
         memory_info, speech_cond_data.data(), speech_cond_data.size(),
         speech_cond_shape.data(), speech_cond_shape.size());
-
-    float t_shift = config_.zipvoice.t_shift;
-    float guidance_scale = config_.zipvoice.guidance_scale;
 
     std::vector<float> timesteps(num_steps + 1);
     for (int32_t i = 0; i <= num_steps; ++i) {
@@ -161,8 +171,15 @@ class OfflineTtsZipvoiceModel::Impl {
 
  private:
   void InitEncoder(void *encoder_data, size_t encoder_data_length) {
-    encoder_sess_ = std::make_unique<Ort::Session>(
-        env_, encoder_data, encoder_data_length, sess_opts_);
+    if (encoder_data) {
+      encoder_sess_ = std::make_unique<Ort::Session>(
+          env_, encoder_data, encoder_data_length, sess_opts_);
+    } else if (!encoder_sess_) {
+      SHERPA_ONNX_LOGE(
+          "Please pass model data or initialize the encoder session outside of "
+          "this function");
+      SHERPA_ONNX_EXIT(-1);
+    }
     GetInputNames(encoder_sess_.get(), &encoder_input_names_,
                   &encoder_names_ptr_);
     GetOutputNames(encoder_sess_.get(), &encoder_output_names_,
@@ -202,8 +219,15 @@ class OfflineTtsZipvoiceModel::Impl {
   }
 
   void InitDecoder(void *decoder_data, size_t decoder_data_length) {
-    decoder_sess_ = std::make_unique<Ort::Session>(
-        env_, decoder_data, decoder_data_length, sess_opts_);
+    if (decoder_data) {
+      decoder_sess_ = std::make_unique<Ort::Session>(
+          env_, decoder_data, decoder_data_length, sess_opts_);
+    } else if (!decoder_sess_) {
+      SHERPA_ONNX_LOGE(
+          "Please pass model data or initialize the decoder session outside of "
+          "this function");
+      SHERPA_ONNX_EXIT(-1);
+    }
     GetInputNames(decoder_sess_.get(), &decoder_input_names_,
                   &decoder_input_names_ptr_);
     GetOutputNames(decoder_sess_.get(), &decoder_output_names_,
@@ -365,9 +389,12 @@ Ort::Value OfflineTtsZipvoiceModel::Run(Ort::Value tokens,
                                         Ort::Value prompt_tokens,
                                         Ort::Value prompt_features,
                                         float speed /*= 1.0*/,
-                                        int32_t num_steps /*= 16*/) const {
+                                        int32_t num_steps /*= 16*/,
+                                        float t_shift /*= 0.5f*/,
+                                        float guidance_scale /*= 1.0f*/) const {
   return impl_->Run(std::move(tokens), std::move(prompt_tokens),
-                    std::move(prompt_features), speed, num_steps);
+                    std::move(prompt_features), speed, num_steps, t_shift,
+                    guidance_scale);
 }
 
 #if __ANDROID_API__ >= 9

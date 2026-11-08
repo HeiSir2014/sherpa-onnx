@@ -45,7 +45,7 @@ static void DetectKeyPress() {
         SHERPA_ONNX_LOGE("Start recording. Press Enter to stop recording");
         state = State::kRecording;
         {
-          std::lock_guard<std::mutex> lock(samples_mutex);
+          std::scoped_lock lock(samples_mutex);
           samples.clear();
         }
         break;
@@ -65,7 +65,7 @@ static int32_t RecordCallback(const void *input_buffer,
                               const PaStreamCallbackTimeInfo * /*time_info*/,
                               PaStreamCallbackFlags /*status_flags*/,
                               void * /*user_data*/) {
-  std::lock_guard<std::mutex> lock(samples_mutex);
+  std::scoped_lock lock(samples_mutex);
 
   auto p = reinterpret_cast<const float *>(input_buffer);
   samples.insert(samples.end(), p, p + frames_per_buffer);
@@ -122,7 +122,7 @@ for a list of pre-trained models to download.
   po.Read(argc, argv);
   if (po.NumArgs() != 0) {
     po.PrintUsage();
-    exit(EXIT_FAILURE);
+    SHERPA_ONNX_EXIT(EXIT_FAILURE);
   }
 
   fprintf(stderr, "%s\n", config.ToString().c_str());
@@ -143,7 +143,7 @@ for a list of pre-trained models to download.
     fprintf(stderr, "No default input device found\n");
     fprintf(stderr, "If you are using Linux, please switch to \n");
     fprintf(stderr, " ./bin/sherpa-onnx-alsa-offline \n");
-    exit(EXIT_FAILURE);
+    SHERPA_ONNX_EXIT(EXIT_FAILURE);
   }
 
   const char *pDeviceIndex = std::getenv("SHERPA_ONNX_MIC_DEVICE");
@@ -157,14 +157,14 @@ for a list of pre-trained models to download.
   float mic_sample_rate = 16000;
   const char *pSampleRateStr = std::getenv("SHERPA_ONNX_MIC_SAMPLE_RATE");
   if (pSampleRateStr) {
-    fprintf(stderr, "Use sample rate %f for mic\n", mic_sample_rate);
     mic_sample_rate = atof(pSampleRateStr);
+    fprintf(stderr, "Use sample rate %f for mic\n", mic_sample_rate);
   }
 
   if (!mic.OpenDevice(device_index, mic_sample_rate, 1, RecordCallback,
                       nullptr /* user_data */)) {
     fprintf(stderr, "portaudio error: %d\n", device_index);
-    exit(EXIT_FAILURE);
+    SHERPA_ONNX_EXIT(EXIT_FAILURE);
   }
 
   std::thread t(DetectKeyPress);
@@ -177,7 +177,7 @@ for a list of pre-trained models to download.
       case State::kDecoding: {
         std::vector<float> buf;
         {
-          std::lock_guard<std::mutex> lock(samples_mutex);
+          std::scoped_lock lock(samples_mutex);
           buf = std::move(samples);
         }
 

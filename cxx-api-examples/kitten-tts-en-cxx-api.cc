@@ -13,6 +13,8 @@ wget https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kitten-n
 tar xf kitten-nano-en-v0_1-fp16.tar.bz2
 rm kitten-nano-en-v0_1-fp16.tar.bz2
 
+wget https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/lexicon-en-us.txt
+
 ./kitten-tts-en-cxx-api
 
  */
@@ -39,7 +41,7 @@ int32_t main(int32_t argc, char *argv[]) {
   config.model.kitten.model = "./kitten-nano-en-v0_1-fp16/model.fp16.onnx";
   config.model.kitten.voices = "./kitten-nano-en-v0_1-fp16/voices.bin";
   config.model.kitten.tokens = "./kitten-nano-en-v0_1-fp16/tokens.txt";
-  config.model.kitten.data_dir = "./kitten-nano-en-v0_1-fp16/espeak-ng-data";
+  config.model.kitten.lexicon = "./lexicon-en-us.txt";
 
   config.model.num_threads = 2;
 
@@ -57,12 +59,16 @@ int32_t main(int32_t argc, char *argv[]) {
   auto tts = OfflineTts::Create(config);
   int32_t sid = 0;
   float speed = 1.0;  // larger -> faster in speech speed
+  GenerationConfig gen_config;
+  gen_config.sid = sid;
+  gen_config.speed = speed;
+  gen_config.silence_scale = 0.2f;
 
 #if 0
   // If you don't want to use a callback, then please enable this branch
-  GeneratedAudio audio = tts.Generate(text, sid, speed);
+  GeneratedAudio audio = tts.Generate(text, gen_config);
 #else
-  GeneratedAudio audio = tts.Generate(text, sid, speed, ProgressCallback);
+  GeneratedAudio audio = tts.Generate(text, gen_config, ProgressCallback);
 #endif
 
   WriteWave(filename, {audio.samples, audio.sample_rate});

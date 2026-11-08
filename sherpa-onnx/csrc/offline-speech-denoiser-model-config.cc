@@ -4,12 +4,17 @@
 
 #include "sherpa-onnx/csrc/offline-speech-denoiser-model-config.h"
 
+#include <sstream>
 #include <string>
+
+#include "sherpa-onnx/csrc/macros.h"
 
 namespace sherpa_onnx {
 
 void OfflineSpeechDenoiserModelConfig::Register(ParseOptions *po) {
   gtcrn.Register(po);
+  dpdfnet.Register(po);
+  voxlock.Register(po);
 
   po->Register("num-threads", &num_threads,
                "Number of threads to run the neural network");
@@ -22,7 +27,23 @@ void OfflineSpeechDenoiserModelConfig::Register(ParseOptions *po) {
 }
 
 bool OfflineSpeechDenoiserModelConfig::Validate() const {
-  return gtcrn.Validate();
+  const bool has_voxlock =
+      !voxlock.enroll_model.empty() || !voxlock.chunk_model.empty();
+
+  if (gtcrn.model.empty() && dpdfnet.model.empty() && !has_voxlock) {
+    SHERPA_ONNX_LOGE("Please provide a speech denoising model.");
+    return false;
+  }
+
+  if (!gtcrn.model.empty()) {
+    return gtcrn.Validate();
+  }
+
+  if (!dpdfnet.model.empty()) {
+    return dpdfnet.Validate();
+  }
+
+  return voxlock.Validate();
 }
 
 std::string OfflineSpeechDenoiserModelConfig::ToString() const {
@@ -30,6 +51,8 @@ std::string OfflineSpeechDenoiserModelConfig::ToString() const {
 
   os << "OfflineSpeechDenoiserModelConfig(";
   os << "gtcrn=" << gtcrn.ToString() << ", ";
+  os << "dpdfnet=" << dpdfnet.ToString() << ", ";
+  os << "voxlock=" << voxlock.ToString() << ", ";
   os << "num_threads=" << num_threads << ", ";
   os << "debug=" << (debug ? "True" : "False") << ", ";
   os << "provider=\"" << provider << "\")";

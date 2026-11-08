@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "sherpa-onnx/csrc/macros.h"
 #include "sherpa-onnx/csrc/offline-speech-denoiser.h"
 #include "sherpa-onnx/csrc/wave-reader.h"
 #include "sherpa-onnx/csrc/wave-writer.h"
@@ -28,6 +29,54 @@ wget https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-
   --speech-denoiser-gtcrn-model=gtcrn_simple.onnx \
   --input-wav=input.wav \
   --output-wav=output_16k.wav
+
+(2) Use DPDFNet models at 8, 16, or 48 kHz
+
+# Download DPDFNet models from either:
+#   https://github.com/k2-fsa/sherpa-onnx/releases/tag/speech-enhancement-models
+#   https://huggingface.co/Ceva-IP/DPDFNet
+
+./bin/sherpa-onnx-offline-denoiser \
+  --speech-denoiser-dpdfnet-model=dpdfnet4.onnx \
+  --speech-denoiser-dpdfnet-attenuation-limit-db=12 \
+  --input-wav=input.wav \
+  --output-wav=output_16k.wav
+
+# You can also use other 16 kHz DPDFNet models such as:
+#   dpdfnet_baseline.onnx
+#   dpdfnet2.onnx
+#   dpdfnet8.onnx
+# Or the 8 kHz DPDFNet models:
+#   dpdfnet2_8khz.onnx
+#   dpdfnet8_8khz.onnx
+
+./bin/sherpa-onnx-offline-denoiser \
+  --speech-denoiser-dpdfnet-model=dpdfnet2_48khz_hr.onnx \
+  --input-wav=input.wav \
+  --output-wav=output_48k.wav
+
+# For the highest-quality 48 kHz model, use dpdfnet8_48khz_hr.onnx.
+
+(3) Use VoxLock models
+
+VoxLock keeps the voice of one speaker, e.g., the caller in a phone call,
+and removes the other voices. Download the models from
+https://github.com/arbazsiddiqui/voxlock/releases/tag/sherpa-onnx-models
+
+wget https://github.com/arbazsiddiqui/voxlock/releases/download/sherpa-onnx-models/voxlock_enroll.onnx
+wget https://github.com/arbazsiddiqui/voxlock/releases/download/sherpa-onnx-models/voxlock_chunk_int8.onnx
+wget https://github.com/arbazsiddiqui/voxlock/releases/download/sherpa-onnx-models/voxlock_test_call.wav
+
+./bin/sherpa-onnx-offline-denoiser \
+  --speech-denoiser-voxlock-enroll-model=voxlock_enroll.onnx \
+  --speech-denoiser-voxlock-chunk-model=voxlock_chunk_int8.onnx \
+  --input-wav=voxlock_test_call.wav \
+  --output-wav=output_16k.wav
+
+# It keeps the voice in the loudest 3 seconds of the first 15 seconds.
+# To choose the voice yourself, pass at least 3 seconds of it with
+#   --speech-denoiser-voxlock-voice-sample=voxlock_test_voice_sample.wav
+# Use voxlock_chunk.onnx for the float32 model.
 )usage";
 
   sherpa_onnx::ParseOptions po(kUsageMessage);
@@ -43,20 +92,25 @@ wget https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-
   if (po.NumArgs() != 0) {
     fprintf(stderr, "Please don't give positional arguments\n");
     po.PrintUsage();
-    exit(EXIT_FAILURE);
+    SHERPA_ONNX_EXIT(EXIT_FAILURE);
   }
   fprintf(stderr, "%s\n", config.ToString().c_str());
+
+  if (!config.Validate()) {
+    fprintf(stderr, "Errors in config!\n");
+    return -1;
+  }
 
   if (input_wave.empty()) {
     fprintf(stderr, "Please provide --input-wav\n");
     po.PrintUsage();
-    exit(EXIT_FAILURE);
+    SHERPA_ONNX_EXIT(EXIT_FAILURE);
   }
 
   if (output_wave.empty()) {
     fprintf(stderr, "Please provide --output-wav\n");
     po.PrintUsage();
-    exit(EXIT_FAILURE);
+    SHERPA_ONNX_EXIT(EXIT_FAILURE);
   }
 
   sherpa_onnx::OfflineSpeechDenoiser denoiser(config);

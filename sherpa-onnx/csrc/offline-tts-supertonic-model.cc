@@ -11,6 +11,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #if __ANDROID_API__ >= 9
@@ -368,7 +369,7 @@ class OfflineTtsSupertonicModel::Impl {
   OfflineTtsModelConfig config_;
   Ort::Env env_;
   Ort::SessionOptions sess_opts_;
-  SupertonicConfig cfg_;
+  SupertonicConfig cfg_ = {};
 
   std::unique_ptr<Ort::Session> dp_sess_;
   std::unique_ptr<Ort::Session> text_enc_sess_;

@@ -25,7 +25,7 @@
 #include "rawfile/raw_file_manager.h"
 #endif
 
-#include "onnxruntime_cxx_api.h"
+#include "onnxruntime_cxx_api.h"  // NOLINT
 #include "sherpa-onnx/csrc/macros.h"
 #include "sherpa-onnx/csrc/onnx-utils.h"
 
@@ -176,6 +176,38 @@ static std::string BuildUserPrompt(const std::vector<std::string> &hotwords,
 }
 
 }  // namespace
+
+std::string FunASRNanoBuildUserPrompt(
+    const OfflineFunASRNanoModelConfig &config, const OfflineStream &stream) {
+  const auto &hotwords = stream.HasOption("hotwords")
+                             ? stream.GetOption("hotwords")
+                             : config.hotwords;
+  const auto &language = stream.HasOption("language")
+                             ? stream.GetOption("language")
+                             : config.language;
+  const auto &user_prompt = stream.HasOption("user_prompt")
+                                ? stream.GetOption("user_prompt")
+                                : config.user_prompt;
+  const bool itn = stream.GetOptionInt("itn", config.itn) != 0;
+
+  return BuildUserPrompt(ParseHotwordsCsv(hotwords), &language, itn,
+                         &user_prompt);
+}
+
+bool FunASRNanoAudioIsSilent(const float *features, int32_t n) {
+  if (n <= 0) {
+    return false;
+  }
+
+  const float v0 = features[0];
+  for (int32_t i = 1; i != n; ++i) {
+    if (features[i] != v0) {
+      return false;
+    }
+  }
+
+  return true;
+}
 
 OfflineRecognizerFunASRNanoImpl::OfflineRecognizerFunASRNanoImpl(
     const OfflineRecognizerConfig &config)
@@ -400,7 +432,11 @@ int64_t OfflineRecognizerFunASRNanoImpl::SampleTokenWithTemperatureAndTopP(
 
   if (top_p >= 1.0f) {
     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-    float sample = dist(rng_);
+    float sample = 0.0f;
+    {
+      std::scoped_lock lock(rng_mutex_);
+      sample = dist(rng_);
+    }
     float cumsum = 0.0f;
     for (int32_t i = 0; i < vocab_size; ++i) {
       cumsum += probs[i];
@@ -441,7 +477,11 @@ int64_t OfflineRecognizerFunASRNanoImpl::SampleTokenWithTemperatureAndTopP(
   if (renorm_sum <= 0.0f) return 0;
 
   std::uniform_real_distribution<float> dist(0.0f, renorm_sum);
-  float sample = dist(rng_);
+  float sample = 0.0f;
+  {
+    std::scoped_lock lock(rng_mutex_);
+    sample = dist(rng_);
+  }
   float cumsum_sample = 0.0f;
   for (int32_t i = 0; i < cutoff; ++i) {
     cumsum_sample += probs[idx[i]];
@@ -976,9 +1016,10 @@ OfflineRecognitionResult OfflineRecognizerFunASRNanoImpl::GenerateText(
     int32_t time_dim = static_cast<int32_t>(log_shape[1]);
     int32_t vocab_size = static_cast<int32_t>(log_shape[2]);
     if (time_dim <= 0 || vocab_size <= 0) {
-      SHERPA_ONNX_LOGE("Invalid logits shape [%lld,%lld,%lld]",
-                       (long long)log_shape[0], (long long)log_shape[1],
-                       (long long)log_shape[2]);
+      SHERPA_ONNX_LOGE("Invalid logits shape [%d,%d,%d]",
+                       static_cast<int32_t>(log_shape[0]),
+                       static_cast<int32_t>(log_shape[1]),
+                       static_cast<int32_t>(log_shape[2]));
       result.text = "";
       return result;
     }
@@ -1047,7 +1088,7 @@ OfflineRecognitionResult OfflineRecognizerFunASRNanoImpl::GenerateText(
                      generated_ids.size(), result.text.c_str());
     std::string token_str;
     for (size_t i = 0; i < generated_ids.size() && i < 10; ++i) {
-      if (i > 0) token_str += ",";
+      if (i > 0) token_str += ',';
       token_str += std::to_string(generated_ids[i]);
     }
     SHERPA_ONNX_LOGE("GenerateText: token ids: %s%s", token_str.c_str(),
@@ -1129,6 +1170,15 @@ void OfflineRecognizerFunASRNanoImpl::DecodeStreams(OfflineStream **ss,
       continue;
     }
 
+    if (FunASRNanoAudioIsSilent(f.data(), static_cast<int32_t>(f.size()))) {
+      // The whole clip is silence. Return an empty result now, before any
+      // hotwords/language prompt tokens are built, so they cannot bias the
+      // LLM decoder into hallucinating text for silent audio.
+      OfflineRecognitionResult r;
+      ss[i]->SetResult(r);
+      continue;
+    }
+
     std::array<int64_t, 3> shape{1, num_frames,
                                  static_cast<int64_t>(f.size() / num_frames)};
 
@@ -1138,25 +1188,10 @@ void OfflineRecognizerFunASRNanoImpl::DecodeStreams(OfflineStream **ss,
 
     Ort::Value encoder_out = model_->ForwardEncoderAdaptor(std::move(features));
 
-    // Parse hotwords parameter
-    std::vector<std::string> hotwords =
-        ParseHotwordsCsv(funasr_config.hotwords);
-
-    // language is empty means None
-    const std::string *lang_ptr =
-        funasr_config.language.empty() ? nullptr : &funasr_config.language;
-
-    // Build user prompt: respect funasr_config.user_prompt; merge with
-    // hotwords/language/itn when provided.
-    std::string user_prompt_dyn = BuildUserPrompt(
-        hotwords, lang_ptr, funasr_config.itn, &funasr_config.user_prompt);
+    std::string user_prompt_dyn =
+        FunASRNanoBuildUserPrompt(funasr_config, *ss[i]);
 
     if (config_.model_config.debug) {
-      SHERPA_ONNX_LOGE(
-          "DecodeStreams: hotwords=%zu, language=%s, itn=%d", hotwords.size(),
-          funasr_config.language.empty() ? "(empty)"
-                                         : funasr_config.language.c_str(),
-          funasr_config.itn ? 1 : 0);
       SHERPA_ONNX_LOGE("DecodeStreams: user_prompt_dyn=%s",
                        user_prompt_dyn.c_str());
     }

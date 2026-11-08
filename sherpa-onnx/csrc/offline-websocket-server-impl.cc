@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "sherpa-onnx/csrc/file-utils.h"
 #include "sherpa-onnx/csrc/macros.h"
 
 namespace sherpa_onnx {
@@ -31,18 +32,18 @@ void OfflineWebsocketDecoderConfig::Register(ParseOptions *po) {
 void OfflineWebsocketDecoderConfig::Validate() const {
   if (!recognizer_config.Validate()) {
     SHERPA_ONNX_LOGE("Error in recognizer config");
-    exit(-1);
+    SHERPA_ONNX_EXIT(-1);
   }
 
   if (max_batch_size <= 0) {
     SHERPA_ONNX_LOGE("Expect --max-batch-size > 0. Given: %d", max_batch_size);
-    exit(-1);
+    SHERPA_ONNX_EXIT(-1);
   }
 
   if (max_utterance_length <= 0) {
     SHERPA_ONNX_LOGE("Expect --max-utterance-length > 0. Given: %f",
                      max_utterance_length);
-    exit(-1);
+    SHERPA_ONNX_EXIT(-1);
   }
 }
 
@@ -136,7 +137,7 @@ OfflineWebsocketServer::OfflineWebsocketServer(
     : io_conn_(io_conn),
       io_work_(io_work),
       config_(config),
-      log_(config.log_file, std::ios::app),
+      log_(OpenOutputFile(config.log_file, std::ios::app)),
       tee_(std::cout, log_),
       decoder_(this) {
   SetupLog();

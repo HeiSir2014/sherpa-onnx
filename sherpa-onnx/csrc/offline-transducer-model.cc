@@ -24,8 +24,72 @@
 #include "sherpa-onnx/csrc/offline-transducer-decoder.h"
 #include "sherpa-onnx/csrc/onnx-utils.h"
 #include "sherpa-onnx/csrc/session.h"
+#include "sherpa-onnx/csrc/text-utils.h"
 
 namespace sherpa_onnx {
+
+namespace {
+
+Ort::Value CastIntTensor(Ort::Value tensor,
+                         ONNXTensorElementDataType target_type,
+                         OrtAllocator *allocator) {
+  auto info = tensor.GetTensorTypeAndShapeInfo();
+  auto source_type = info.GetElementType();
+  auto shape = info.GetShape();
+  if (source_type == target_type) {
+    return tensor;
+  }
+
+  switch (source_type) {
+    case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32:
+    case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64:
+      break;
+    default:
+      SHERPA_ONNX_LOGE("Expected int32 or int64 source tensor. Given %d",
+                       static_cast<int32_t>(source_type));
+      SHERPA_ONNX_EXIT(-1);
+  }
+
+  size_t n = info.GetElementCount();
+  switch (target_type) {
+    case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32: {
+      Ort::Value ans =
+          Ort::Value::CreateTensor<int32_t>(allocator, shape.data(), shape.size());
+      int32_t *dst = ans.GetTensorMutableData<int32_t>();
+      const int64_t *src = tensor.GetTensorData<int64_t>();
+      for (size_t i = 0; i != n; ++i) {
+        dst[i] = static_cast<int32_t>(src[i]);
+      }
+      return ans;
+    }
+    case ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64: {
+      Ort::Value ans =
+          Ort::Value::CreateTensor<int64_t>(allocator, shape.data(), shape.size());
+      int64_t *dst = ans.GetTensorMutableData<int64_t>();
+      const int32_t *src = tensor.GetTensorData<int32_t>();
+      for (size_t i = 0; i != n; ++i) {
+        dst[i] = src[i];
+      }
+      return ans;
+    }
+    default:
+      SHERPA_ONNX_LOGE("Expected int32 or int64 target tensor. Given %d",
+                       static_cast<int32_t>(target_type));
+      SHERPA_ONNX_EXIT(-1);
+      return Ort::Value{nullptr};  // unreachable
+  }
+}
+
+void ValidateIntTensorType(ONNXTensorElementDataType type, const char *name) {
+  if (type != ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32 &&
+      type != ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64) {
+    SHERPA_ONNX_LOGE("%s should be int32 or int64. Given %d", name,
+                     static_cast<int32_t>(type));
+    SHERPA_ONNX_EXIT(-1);
+  }
+}
+
+}  // namespace
 
 class OfflineTransducerModel::Impl {
  public:
@@ -34,20 +98,20 @@ class OfflineTransducerModel::Impl {
         env_(ORT_LOGGING_LEVEL_ERROR),
         sess_opts_(GetSessionOptions(config)),
         allocator_{} {
-    {
-      auto buf = ReadFile(config.transducer.encoder_filename);
-      InitEncoder(buf.data(), buf.size());
-    }
+    encoder_sess_ = std::make_unique<Ort::Session>(
+        env_, SHERPA_ONNX_TO_ORT_PATH(config.transducer.encoder_filename),
+        sess_opts_);
+    InitEncoder(nullptr, 0);
 
-    {
-      auto buf = ReadFile(config.transducer.decoder_filename);
-      InitDecoder(buf.data(), buf.size());
-    }
+    decoder_sess_ = std::make_unique<Ort::Session>(
+        env_, SHERPA_ONNX_TO_ORT_PATH(config.transducer.decoder_filename),
+        sess_opts_);
+    InitDecoder(nullptr, 0);
 
-    {
-      auto buf = ReadFile(config.transducer.joiner_filename);
-      InitJoiner(buf.data(), buf.size());
-    }
+    joiner_sess_ = std::make_unique<Ort::Session>(
+        env_, SHERPA_ONNX_TO_ORT_PATH(config.transducer.joiner_filename),
+        sess_opts_);
+    InitJoiner(nullptr, 0);
   }
 
   template <typename Manager>
@@ -74,6 +138,9 @@ class OfflineTransducerModel::Impl {
 
   std::pair<Ort::Value, Ort::Value> RunEncoder(Ort::Value features,
                                                Ort::Value features_length) {
+    features_length =
+        CastIntTensor(std::move(features_length), encoder_input_length_type_,
+                      Allocator());
     std::array<Ort::Value, 2> encoder_inputs = {std::move(features),
                                                 std::move(features_length)};
 
@@ -81,11 +148,14 @@ class OfflineTransducerModel::Impl {
         {}, encoder_input_names_ptr_.data(), encoder_inputs.data(),
         encoder_inputs.size(), encoder_output_names_ptr_.data(),
         encoder_output_names_ptr_.size());
-
-    return {std::move(encoder_out[0]), std::move(encoder_out[1])};
+    return {std::move(encoder_out[0]),
+            CastIntTensor(std::move(encoder_out[1]),
+                          ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64, Allocator())};
   }
 
   Ort::Value RunDecoder(Ort::Value decoder_input) {
+    decoder_input =
+        CastIntTensor(std::move(decoder_input), decoder_input_type_, Allocator());
     auto decoder_out = decoder_sess_->Run(
         {}, decoder_input_names_ptr_.data(), &decoder_input, 1,
         decoder_output_names_ptr_.data(), decoder_output_names_ptr_.size());
@@ -157,14 +227,31 @@ class OfflineTransducerModel::Impl {
 
  private:
   void InitEncoder(void *model_data, size_t model_data_length) {
-    encoder_sess_ = std::make_unique<Ort::Session>(
-        env_, model_data, model_data_length, sess_opts_);
+    if (model_data) {
+      encoder_sess_ = std::make_unique<Ort::Session>(
+          env_, model_data, model_data_length, sess_opts_);
+    } else if (!encoder_sess_) {
+      SHERPA_ONNX_LOGE(
+          "Please pass model data or initialize the encoder session outside of "
+          "this function");
+      SHERPA_ONNX_EXIT(-1);
+    }
 
     GetInputNames(encoder_sess_.get(), &encoder_input_names_,
                   &encoder_input_names_ptr_);
 
     GetOutputNames(encoder_sess_.get(), &encoder_output_names_,
                    &encoder_output_names_ptr_);
+
+    encoder_input_length_type_ = encoder_sess_->GetInputTypeInfo(1)
+                                     .GetTensorTypeAndShapeInfo()
+                                     .GetElementType();
+    ValidateIntTensorType(encoder_input_length_type_,
+        "offline transducer encoder input 1");
+
+    ValidateIntTensorType(
+        encoder_sess_->GetOutputTypeInfo(1).GetTensorTypeAndShapeInfo().GetElementType(),
+        "offline transducer encoder output 1");
 
     // get meta data
     Ort::ModelMetadata meta_data = encoder_sess_->GetModelMetadata();
@@ -181,14 +268,27 @@ class OfflineTransducerModel::Impl {
   }
 
   void InitDecoder(void *model_data, size_t model_data_length) {
-    decoder_sess_ = std::make_unique<Ort::Session>(
-        env_, model_data, model_data_length, sess_opts_);
+    if (model_data) {
+      decoder_sess_ = std::make_unique<Ort::Session>(
+          env_, model_data, model_data_length, sess_opts_);
+    } else if (!decoder_sess_) {
+      SHERPA_ONNX_LOGE(
+          "Please pass model data or initialize the decoder session outside of "
+          "this function");
+      SHERPA_ONNX_EXIT(-1);
+    }
 
     GetInputNames(decoder_sess_.get(), &decoder_input_names_,
                   &decoder_input_names_ptr_);
 
     GetOutputNames(decoder_sess_.get(), &decoder_output_names_,
                    &decoder_output_names_ptr_);
+
+    decoder_input_type_ = decoder_sess_->GetInputTypeInfo(0)
+                              .GetTensorTypeAndShapeInfo()
+                              .GetElementType();
+    ValidateIntTensorType(decoder_input_type_,
+                          "offline transducer decoder input 0");
 
     // get meta data
     Ort::ModelMetadata meta_data = decoder_sess_->GetModelMetadata();
@@ -205,8 +305,15 @@ class OfflineTransducerModel::Impl {
   }
 
   void InitJoiner(void *model_data, size_t model_data_length) {
-    joiner_sess_ = std::make_unique<Ort::Session>(
-        env_, model_data, model_data_length, sess_opts_);
+    if (model_data) {
+      joiner_sess_ = std::make_unique<Ort::Session>(
+          env_, model_data, model_data_length, sess_opts_);
+    } else if (!joiner_sess_) {
+      SHERPA_ONNX_LOGE(
+          "Please pass model data or initialize the joiner session outside of "
+          "this function");
+      SHERPA_ONNX_EXIT(-1);
+    }
 
     GetInputNames(joiner_sess_.get(), &joiner_input_names_,
                   &joiner_input_names_ptr_);
@@ -251,6 +358,11 @@ class OfflineTransducerModel::Impl {
 
   std::vector<std::string> joiner_output_names_;
   std::vector<const char *> joiner_output_names_ptr_;
+
+  ONNXTensorElementDataType encoder_input_length_type_ =
+      ONNX_TENSOR_ELEMENT_DATA_TYPE_UNDEFINED;
+  ONNXTensorElementDataType decoder_input_type_ =
+      ONNX_TENSOR_ELEMENT_DATA_TYPE_UNDEFINED;
 
   int32_t vocab_size_ = 0;    // initialized in InitDecoder
   int32_t context_size_ = 0;  // initialized in InitDecoder

@@ -1,0 +1,65 @@
+plugins {
+    id 'application'
+    id 'java'
+}
+
+application {
+    mainClass = 'com.k2fsa.sherpa.onnx.example.VersionTest'
+}
+
+repositories {
+    mavenCentral()
+    maven { url 'https://jitpack.io' }
+}
+
+dependencies {
+    // ============================================================
+    // Approach 1: Simple — one dependency pulls in everything.
+    // ============================================================
+    // implementation 'com.github.k2-fsa:sherpa-onnx:v2.0.1'
+
+    // ============================================================
+    // Approach 2 (recommended): Multi-module — split JVM API and
+    // native libs so you only ship the platform you need.
+    // ============================================================
+
+    // 1. JVM core API Jar
+    implementation 'com.github.k2-fsa.sherpa-onnx:sherpa-onnx-jvm:v2.0.1'
+
+    // 2. Platform native lib — uncomment ONE for your target platform
+
+    // macOS ARM64 (Apple Silicon)
+    implementation 'com.github.k2-fsa.sherpa-onnx:sherpa-onnx-native-lib-osx-aarch64:v2.0.1'
+
+    // macOS x64 (Intel)
+    // implementation 'com.github.k2-fsa.sherpa-onnx:sherpa-onnx-native-lib-osx-x64:v2.0.1'
+
+    // Linux x64
+    // implementation 'com.github.k2-fsa.sherpa-onnx:sherpa-onnx-native-lib-linux-x64:v2.0.1'
+
+    // Linux ARM64
+    // implementation 'com.github.k2-fsa.sherpa-onnx:sherpa-onnx-native-lib-linux-aarch64:v2.0.1'
+
+    // Windows x64
+    // implementation 'com.github.k2-fsa.sherpa-onnx:sherpa-onnx-native-lib-win-x64:v2.0.1'
+
+    // Windows ARM64
+    // implementation 'com.github.k2-fsa.sherpa-onnx:sherpa-onnx-native-lib-win-arm64:v2.0.1'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+tasks.named('jar') {
+    manifest {
+        attributes(
+            'Main-Class': 'com.k2fsa.sherpa.onnx.example.VersionTest'
+        )
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+}

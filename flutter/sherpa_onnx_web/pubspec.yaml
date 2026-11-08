@@ -1,0 +1,51 @@
+name: sherpa_onnx_web
+description: >
+  Web platform support for sherpa_onnx using WebAssembly.
+
+version: 2.0.1
+
+repository: https://github.com/k2-fsa/sherpa-onnx/tree/master/flutter
+
+issue_tracker: https://github.com/k2-fsa/sherpa-onnx/issues
+documentation: https://k2-fsa.github.io/sherpa/onnx/
+
+homepage: https://github.com/k2-fsa/sherpa-onnx
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=2.8.1"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_web_plugins:
+    sdk: flutter
+  path: ^1.9.0
+  web: ^1.1.0
+
+flutter:
+  plugin:
+    platforms:
+      web:
+        pluginClass: SherpaOnnxWeb
+        fileName: sherpa_onnx_web.dart
+
+  assets:
+    - path: assets/sherpa-onnx-wasm-web.js
+      platforms: [web]
+    - path: assets/sherpa-onnx-wasm-web.wasm
+      platforms: [web]
+    - path: assets/sherpa-onnx-asr.js
+      platforms: [web]
+    - path: assets/sherpa-onnx-tts.js
+      platforms: [web]
+    - path: assets/sherpa-onnx-vad.js
+      platforms: [web]
+    - path: assets/sherpa-onnx-kws.js
+      platforms: [web]
+    - path: assets/sherpa-onnx-punctuation.js
+      platforms: [web]
+    - path: assets/sherpa-onnx-speaker-diarization.js
+      platforms: [web]
+    - path: assets/sherpa-onnx-speech-enhancement.js
+      platforms: [web]

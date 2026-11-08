@@ -68,7 +68,7 @@ in sherpa-onnx.
 std::vector<std::vector<float>> ReadWaveImpl(std::istream &is,
                                              int32_t *sampling_rate,
                                              bool *is_ok) {
-  WaveHeader header{};
+  WaveHeader header = {};
   is.read(reinterpret_cast<char *>(&header.chunk_id), sizeof(header.chunk_id));
 
   //                        F F I R
@@ -146,6 +146,13 @@ std::vector<std::vector<float>> ReadWaveImpl(std::istream &is,
 
   is.read(reinterpret_cast<char *>(&header.num_channels),
           sizeof(header.num_channels));
+
+  if (header.num_channels <= 0) {
+    SHERPA_ONNX_LOGE("Invalid num_channels: %d. Expected > 0",
+                     header.num_channels);
+    *is_ok = false;
+    return {};
+  }
 
   is.read(reinterpret_cast<char *>(&header.sample_rate),
           sizeof(header.sample_rate));
@@ -349,7 +356,7 @@ std::vector<float> ReadWave(const std::string &filename, int32_t *sampling_rate,
     return {};
   }
 
-  std::ifstream is(filename, std::ifstream::binary);
+  auto is = OpenInputFile(filename, std::ios::binary);
   return ReadWave(is, sampling_rate, is_ok);
 }
 
@@ -379,7 +386,18 @@ std::vector<std::vector<float>> ReadWaveMultiChannel(std::istream &is,
 
 std::vector<std::vector<float>> ReadWaveMultiChannel(
     const std::string &filename, int32_t *sampling_rate, bool *is_ok) {
-  std::ifstream is(filename, std::ifstream::binary);
+  *is_ok = false;
+  if (filename.empty()) {
+    SHERPA_ONNX_LOGE("Filename is empty");
+    return {};
+  }
+
+  if (!FileExists(filename)) {
+    SHERPA_ONNX_LOGE("Filename '%s' does not exist", filename.c_str());
+    return {};
+  }
+
+  auto is = OpenInputFile(filename, std::ios::binary);
   return ReadWaveMultiChannel(is, sampling_rate, is_ok);
 }
 

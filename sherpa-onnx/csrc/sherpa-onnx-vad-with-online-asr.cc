@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "sherpa-onnx/csrc/online-recognizer.h"
+#include "sherpa-onnx/csrc/macros.h"
 #include "sherpa-onnx/csrc/online-stream.h"
 #include "sherpa-onnx/csrc/parse-options.h"
 #include "sherpa-onnx/csrc/resample.h"
@@ -92,7 +93,7 @@ for a list of pre-trained models to download.
     fprintf(stderr, "Error: Please provide exactly 1 wave file. Given: %d\n\n",
             po.NumArgs());
     po.PrintUsage();
-    exit(EXIT_FAILURE);
+    SHERPA_ONNX_EXIT(EXIT_FAILURE);
   }
 
   fprintf(stderr, "%s\n", vad_config.ToString().c_str());
@@ -168,9 +169,9 @@ for a list of pre-trained models to download.
 
     while (!vad->Empty()) {
       const auto &segment = vad->Front();
-      float duration = segment.samples.size() / 16000.;
-      float start_time = segment.start / 16000.;
-      float end_time = start_time + duration;
+      double duration = segment.samples.size() / 16000.;
+      double start_time = segment.start / 16000.;
+      double end_time = start_time + duration;
       auto s = recognizer.CreateStream();
       s->AcceptWaveform(16000, segment.samples.data(), segment.samples.size());
       s->AcceptWaveform(16000, tail_paddings.data(), tail_paddings.size());

@@ -24,10 +24,12 @@ void OfflineModelConfig::Register(ParseOptions *po) {
   moonshine.Register(po);
   dolphin.Register(po);
   canary.Register(po);
+  cohere_transcribe.Register(po);
   omnilingual.Register(po);
   funasr_nano.Register(po);
   medasr.Register(po);
   fire_red_asr_ctc.Register(po);
+  qwen3_asr.Register(po);
 
   po->Register("telespeech-ctc", &telespeech_ctc,
                "Path to model.onnx for telespeech ctc");
@@ -96,9 +98,9 @@ bool OfflineModelConfig::Validate() const {
     }
   }
 
-  // For FunASR-nano, tokens file is not required (tokenizer is loaded from
-  // directory) Check tokens file only if not using funasr_nano
-  if (funasr_nano.encoder_adaptor.empty()) {
+  // For FunASR-nano and Qwen3-ASR, tokens file is not required (tokenizer is
+  // loaded from directory). Check tokens only for other model types.
+  if (funasr_nano.encoder_adaptor.empty() && qwen3_asr.conv_frontend.empty()) {
     if (!FileExists(tokens)) {
       SHERPA_ONNX_LOGE("tokens: '%s' does not exist", tokens.c_str());
       return false;
@@ -147,7 +149,9 @@ bool OfflineModelConfig::Validate() const {
     return sense_voice.Validate();
   }
 
-  if (!moonshine.encoder.empty()) {
+  if (!moonshine.encoder.empty() ||
+      !moonshine.decoder.empty() ||
+      !moonshine.qnn_config.context_binary.empty()) {
     return moonshine.Validate();
   }
 
@@ -157,6 +161,10 @@ bool OfflineModelConfig::Validate() const {
 
   if (!canary.encoder.empty()) {
     return canary.Validate();
+  }
+
+  if (!cohere_transcribe.encoder.empty()) {
+    return cohere_transcribe.Validate();
   }
 
   if (!omnilingual.model.empty()) {
@@ -175,13 +183,41 @@ bool OfflineModelConfig::Validate() const {
     return fire_red_asr_ctc.Validate();
   }
 
+  if (!qwen3_asr.conv_frontend.empty()) {
+    return qwen3_asr.Validate();
+  }
+
   if (!telespeech_ctc.empty() && !FileExists(telespeech_ctc)) {
     SHERPA_ONNX_LOGE("telespeech_ctc: '%s' does not exist",
                      telespeech_ctc.c_str());
     return false;
   }
 
-  if (!transducer.encoder_filename.empty()) {
+  if (IsQnnTransducerArtifact(transducer) && provider != "qnn") {
+    SHERPA_ONNX_LOGE(
+        "Offline transducer QNN artifacts require --provider=qnn. "
+        "Given provider: '%s'",
+        provider.c_str());
+    return false;
+  }
+
+  if (provider == "qnn" &&
+      (!transducer.encoder_filename.empty() ||
+       !transducer.decoder_filename.empty() ||
+       !transducer.joiner_filename.empty()) &&
+      !IsQnnTransducerArtifact(transducer)) {
+    SHERPA_ONNX_LOGE(
+        "--provider=qnn requires QNN offline transducer artifacts (*.so or "
+        "--transducer.qnn-context-binary). Given encoder: '%s', decoder: '%s', "
+        "joiner: '%s'",
+        transducer.encoder_filename.c_str(), transducer.decoder_filename.c_str(),
+        transducer.joiner_filename.c_str());
+    return false;
+  }
+
+  if (!transducer.encoder_filename.empty() || !transducer.decoder_filename.empty() ||
+      !transducer.joiner_filename.empty() ||
+      !transducer.qnn_config.context_binary.empty()) {
     return transducer.Validate();
   }
 
@@ -204,10 +240,12 @@ std::string OfflineModelConfig::ToString() const {
   os << "moonshine=" << moonshine.ToString() << ", ";
   os << "dolphin=" << dolphin.ToString() << ", ";
   os << "canary=" << canary.ToString() << ", ";
+  os << "cohere_transcribe=" << cohere_transcribe.ToString() << ", ";
   os << "omnilingual=" << omnilingual.ToString() << ", ";
   os << "funasr_nano=" << funasr_nano.ToString() << ", ";
   os << "medasr=" << medasr.ToString() << ", ";
   os << "fire_red_asr_ctc=" << fire_red_asr_ctc.ToString() << ", ";
+  os << "qwen3_asr=" << qwen3_asr.ToString() << ", ";
   os << "telespeech_ctc=\"" << telespeech_ctc << "\", ";
   os << "tokens=\"" << tokens << "\", ";
   os << "num_threads=" << num_threads << ", ";

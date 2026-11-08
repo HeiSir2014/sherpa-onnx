@@ -1,13 +1,101 @@
 #!/usr/bin/env bash
 
 set -ex
-
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
 cd dart-api-examples
+
+echo '----------Version----------'
+pushd version
+./run.sh
+popd
+
+pushd speech-enhancement-voxlock
+echo "speech enhancement with VoxLock"
+./run.sh
+popd
+
+pushd speech-enhancement-voxlock-with-voice-sample
+echo "speech enhancement with VoxLock and a voice sample"
+./run.sh
+popd
+
+pushd streaming-speech-enhancement-voxlock
+echo "streaming speech enhancement with VoxLock"
+./run.sh
+popd
+
+pushd streaming-speech-enhancement-voxlock-with-voice-sample
+echo "streaming speech enhancement with VoxLock and a voice sample"
+./run.sh
+popd
+
+pushd tts
+
+echo '----------tts----------'
+./run-pocket-en.sh
+./run-kitten-en-lexicon.sh
+./run-kitten-en-phonemize.sh
+./run-supertonic-en.sh
+./run-kokoro-zh-en-lexicon.sh
+./run-kokoro-en-lexicon.sh
+./run-kokoro-en-phonemize.sh
+./run-matcha-zh-lexicon.sh
+./run-matcha-en-lexicon.sh
+./run-matcha-en-phonemize.sh
+./run-zipvoice-zh-en-lexicon.sh
+ls -lh *.wav
+rm -rf matcha-icefall-*
+rm -rf sherpa-onnx-zipvoice-*
+rm -f lexicon-en-us.txt
+rm *.onnx
+
+echo '----------piper tts----------'
+./run-piper-lexicon.sh
+./run-piper-phonemize.sh
+rm -f lexicon-en-us.txt
+rm -rf vits-piper-*
+
+echo '----------german tts----------'
+./run-vits-de-phonemize.sh
+rm -rf vits-piper-*
+
+echo '----------coqui tts----------'
+./run-coqui.sh
+rm -rf vits-coqui-*
+
+echo '----------zh tts----------'
+./run-vits-zh-lexicon.sh
+rm -rf sherpa-onnx-*
+
+ls -lh *.wav
+
+popd # tts
 
 pushd non-streaming-asr
 
 echo '----------Moonshine v2----------'
 ./run-moonshine-v2.sh
+rm -rf sherpa-onnx-*
+
+echo '----------Wenet CTC----------'
+./run-wenet-ctc.sh
+rm -rf sherpa-onnx-*
+
+echo '----------Zipformer CTC----------'
+./run-zipformer-ctc.sh
+rm -rf sherpa-onnx-*
+
+echo '----------Zipformer CTC HLG----------'
+./run-zipformer-ctc-hlg.sh
+rm -rf sherpa-onnx-*
+
+echo '----------Cohere Transcribe----------'
+./run-cohere-transcribe.sh
+rm -rf sherpa-onnx-*
+
+echo '----------Qwen3 ASR----------'
+./run-qwen3-asr.sh
 rm -rf sherpa-onnx-*
 
 echo '----------FireRedASR CTC----------'
@@ -24,14 +112,6 @@ rm -rf sherpa-onnx-*
 
 echo '----------Omnilingual ASR CTC----------'
 ./run-omnilingual-asr-ctc.sh
-rm -rf sherpa-onnx-*
-
-echo '----------Wenet CTC----------'
-./run-wenet-ctc.sh
-rm -rf sherpa-onnx-*
-
-echo '----------Zipformer CTC----------'
-./run-zipformer-ctc.sh
 rm -rf sherpa-onnx-*
 
 echo '----------SenseVoice----------'
@@ -61,6 +141,7 @@ rm -rf sherpa-onnx-*
 
 echo '----------moonshine----------'
 ./run-moonshine.sh
+./run-moonshine-async.sh
 rm -rf sherpa-onnx-*
 
 echo '----------whisper----------'
@@ -84,35 +165,29 @@ rm -rf sherpa-onnx-*
 
 popd # non-streaming-asr
 
-pushd tts
+pushd speech-enhancement-gtcrn
+echo "speech enhancement with gtcrn models"
+./run.sh
+ls -lh
+popd
 
-echo '----------tts----------'
-./run-pocket-en.sh
-./run-kitten-en.sh
-./run-supertonic-en.sh
-./run-kokoro-zh-en.sh
-./run-kokoro-en.sh
-./run-matcha-zh.sh
-./run-matcha-en.sh
-ls -lh *.wav
-rm -rf matcha-icefall-*
-rm *.onnx
+pushd speech-enhancement-dpdfnet
+echo "speech enhancement with dpdfnet models"
+./run.sh
+ls -lh
+popd
 
-echo '----------piper tts----------'
-./run-piper.sh
-rm -rf vits-piper-*
+pushd streaming-speech-enhancement-gtcrn
+echo "streaming speech enhancement with gtcrn models"
+./run.sh
+ls -lh
+popd
 
-echo '----------coqui tts----------'
-./run-coqui.sh
-rm -rf vits-coqui-*
-
-echo '----------zh tts----------'
-./run-vits-zh.sh
-rm -rf sherpa-onnx-*
-
-ls -lh *.wav
-
-popd # tts
+pushd streaming-speech-enhancement-dpdfnet
+echo "streaming speech enhancement with dpdfnet models"
+./run.sh
+ls -lh
+popd
 
 pushd spoken-language-identification
 ./run-whisper.sh
@@ -154,12 +229,6 @@ pushd vad
 rm *.onnx
 popd
 
-pushd speech-enhancement-gtcrn
-echo "speech enhancement with gtcrn models"
-./run.sh
-ls -lh
-popd
-
 pushd speaker-diarization
 echo '----------speaker diarization----------'
 ./run.sh
@@ -173,6 +242,9 @@ popd
 pushd add-punctuations
 echo '----------CT Transformer----------'
 ./run-ct-transformer.sh
+echo '----------Online punctuation----------'
+./run-online.sh
+rm -rf sherpa-onnx-online-punct-en-2024-08-06
 popd
 
 pushd audio-tagging

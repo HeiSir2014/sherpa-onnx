@@ -17,11 +17,16 @@ struct OfflineTtsVitsModelMetaData {
   int32_t sample_rate = 0;
   int32_t add_blank = 0;
   int32_t num_speakers = 0;
+  int32_t num_emotions = 0;
 
   bool is_piper = false;
   bool is_coqui = false;
   bool is_icefall = false;
   bool is_melo_tts = false;
+  bool is_inflect = false;
+
+  // for piper zh models using pinyin instead of espeak-ng
+  bool use_g2pw = false;
 
   // for Chinese TTS models from
   // https://github.com/Plachtaa/VITS-fast-fine-tuning

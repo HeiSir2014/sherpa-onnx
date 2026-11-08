@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "sherpa-onnx/csrc/keyword-spotter.h"
+#include "sherpa-onnx/csrc/macros.h"
 #include "sherpa-onnx/csrc/online-stream.h"
 #include "sherpa-onnx/csrc/parse-options.h"
 #include "sherpa-onnx/csrc/wave-reader.h"
@@ -41,7 +42,7 @@ Usage:
 Note: It supports decoding multiple files in batches
 
 Default value for num_threads is 2.
-Valid values for provider: cpu (default), cuda, coreml.
+Valid values for provider: cpu (default), cuda, coreml, openvino.
 foo.wav should be of single channel, 16-bit PCM encoded wave file; its
 sampling rate can be arbitrary and does not need to be 16kHz.
 
@@ -58,7 +59,7 @@ for a list of pre-trained models to download.
   po.Read(argc, argv);
   if (po.NumArgs() < 1) {
     po.PrintUsage();
-    exit(EXIT_FAILURE);
+    SHERPA_ONNX_EXIT(EXIT_FAILURE);
   }
 
   fprintf(stderr, "%s\n", config.ToString().c_str());

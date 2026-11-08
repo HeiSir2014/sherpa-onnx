@@ -24,13 +24,18 @@ export src_dir
 mkdir -p $src_dir
 pushd $src_dir
 
-mkdir -p linux-x64 linux-arm64 macos-x64 macos-arm64 windows-x64 windows-x86 windows-arm64
+RIDS=(linux-x64 linux-arm64 android-arm64 android-x64 macos-x64 macos-arm64 windows-x64 windows-x86 windows-arm64)
+
+mkdir -p ${RIDS[@]}
 
 linux_x64_wheel_filename=sherpa_onnx_core-${SHERPA_ONNX_VERSION}-py3-none-manylinux2014_x86_64.whl
 linux_x64_wheel=$src_dir/$linux_x64_wheel_filename
 
 linux_arm64_wheel_filename=sherpa_onnx_core-${SHERPA_ONNX_VERSION}-py3-none-manylinux2014_aarch64.whl
 linux_arm64_wheel=$src_dir/$linux_arm64_wheel_filename
+
+android_tarball_filename=sherpa-onnx-v$SHERPA_ONNX_VERSION-android.tar.bz2
+android_tarball=$src_dir/$android_tarball_filename
 
 macos_x64_wheel_filename=sherpa_onnx_core-${SHERPA_ONNX_VERSION}-py3-none-macosx_10_15_x86_64.whl
 macos_x64_wheel=$src_dir/$macos_x64_wheel_filename
@@ -81,6 +86,34 @@ if [ ! -f $src_dir/linux-arm64/libsherpa-onnx-c-api.so ]; then
   rm -rf wheel
   ls -lh
   cd ..
+fi
+
+if [ ! -f $src_dir/android-arm64/libsherpa-onnx-c-api.so ] || [ ! -f $src_dir/android-x64/libsherpa-onnx-c-api.so ]; then
+  echo "---android---"
+  mkdir -p tarball
+  cd tarball
+  if [ -f $android_tarball  ]; then
+    cp -v $android_tarball .
+  else
+    curl -OL "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$SHERPA_ONNX_VERSION/$android_tarball_filename"
+  fi
+  tar xjf $android_tarball_filename
+
+  if [ ! -f $src_dir/android-arm64/libsherpa-onnx-c-api.so ]; then
+    echo "---android arm64---"
+    cp -v jniLibs/arm64-v8a/lib{onnxruntime,sherpa-onnx-c-api}.so ../android-arm64/
+    ls -lh ../android-arm64
+  fi
+
+  if [ ! -f $src_dir/android-x64/libsherpa-onnx-c-api.so ]; then
+    echo "---android x64---"
+    cp -v jniLibs/x86_64/lib{onnxruntime,sherpa-onnx-c-api}.so ../android-x64/
+    ls -lh ../android-x64
+  fi
+
+  cd ..
+
+  rm -rf tarball
 fi
 
 if [ ! -f $src_dir/macos-x64/libsherpa-onnx-c-api.dylib ]; then
@@ -182,46 +215,18 @@ fi
 
 popd
 
-mkdir -p macos-x64 macos-arm64 linux-x64 linux-arm64 windows-x64 windows-x86 windows-arm64 all
+mkdir -p ${RIDS[@]} all
 
 cp ./*.cs all
 
 ./generate.py
 
-pushd linux-x64
-dotnet build -c Release
-dotnet pack -c Release -o ../packages
-popd
-
-pushd linux-arm64
-dotnet build -c Release
-dotnet pack -c Release -o ../packages
-popd
-
-pushd macos-x64
-dotnet build -c Release
-dotnet pack -c Release -o ../packages
-popd
-
-pushd macos-arm64
-dotnet build -c Release
-dotnet pack -c Release -o ../packages
-popd
-
-pushd windows-x64
-dotnet build -c Release
-dotnet pack -c Release -o ../packages
-popd
-
-pushd windows-x86
-dotnet build -c Release
-dotnet pack -c Release -o ../packages
-popd
-
-pushd windows-arm64
-dotnet build -c Release
-dotnet pack -c Release -o ../packages
-popd
+for rid in "${RIDS[@]}"; do
+  pushd "$rid"
+  dotnet build -c Release
+  dotnet pack -c Release -o ../packages
+  popd
+done
 
 pushd all
 dotnet build -c Release

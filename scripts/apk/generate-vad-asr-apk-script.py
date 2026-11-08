@@ -21,6 +21,11 @@ def get_args():
         default=0,
         help="Index of the current runner",
     )
+    parser.add_argument(
+        "--count",
+        action="store_true",
+        help="Print the total number of models and exit",
+    )
     return parser.parse_args()
 
 
@@ -360,7 +365,7 @@ def get_models():
             idx=19,
             lang="ru",
             lang2="Russian",
-            short_name="nemo_ctc_giga_am",
+            short_name="nemo_ctc_giga_am_2024_10_24",
             cmd="""
             pushd $model_name
 
@@ -379,7 +384,7 @@ def get_models():
             idx=20,
             lang="ru",
             lang2="Russian",
-            short_name="nemo_transducer_giga_am",
+            short_name="nemo_transducer_giga_am_2024_10_24",
             cmd="""
             pushd $model_name
 
@@ -483,7 +488,7 @@ def get_models():
             idx=27,
             lang="ru",
             lang2="Russian",
-            short_name="nemo_ctc_giga_am_v2",
+            short_name="nemo_ctc_giga_am_v2_2025_04_19",
             cmd="""
             pushd $model_name
 
@@ -502,7 +507,7 @@ def get_models():
             idx=28,
             lang="ru",
             lang2="Russian",
-            short_name="nemo_transducer_giga_am",
+            short_name="nemo_transducer_giga_am_v2_2025_04_19",
             cmd="""
             pushd $model_name
 
@@ -1017,17 +1022,54 @@ def get_models():
             popd
             """,
         ),
+        Model(
+            model_name="sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25",
+            idx=61,
+            lang="52_lang",
+            lang2="52_lang",
+            short_name="qwen3_asr_0.6B_int8",
+            cmd="""
+            pushd $model_name
+
+            rm -rfv test_wavs
+
+            ls -lh
+
+            popd
+            """,
+        ),
+        Model(
+            model_name="sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-non-streaming",
+            idx=62,
+            lang="en",
+            lang2="English",
+            short_name="parakeet_unified_en_non_streaming_0.6b_int8",
+            cmd="""
+            pushd $model_name
+
+            rm -rfv test_wavs
+
+            ls -lh
+
+            popd
+            """,
+        ),
     ]
     return models
 
 
 def main():
     args = get_args()
+
+    all_model_list = get_models()
+
+    if args.count:
+        print(len(all_model_list))
+        return
+
     index = args.index
     total = args.total
     assert 0 <= index < total, (index, total)
-
-    all_model_list = get_models()
 
     num_models = len(all_model_list)
 

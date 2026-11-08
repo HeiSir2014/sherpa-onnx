@@ -4,8 +4,10 @@ on:
   push:
     branches:
       - master
+      - dot-net
     paths:
       - '.github/workflows/test-dot-net.yaml'
+      - '.github/scripts/test-dot-net.sh'
       - 'cmake/**'
       - 'sherpa-onnx/csrc/*'
       - 'dotnet-examples/**'
@@ -60,7 +62,6 @@ jobs:
             -DCMAKE_INSTALL_PREFIX=./install \
             -DCMAKE_BUILD_TYPE=Release \
             -DSHERPA_ONNX_ENABLE_WEBSOCKET=OFF \
-            -DBUILD_ESPEAK_NG_EXE=OFF \
             -DSHERPA_ONNX_ENABLE_BINARY=OFF \
             ..
 
@@ -163,7 +164,9 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: |
+            8.0.x
+            10.0.x
 
       - name: Check dotnet
         run: dotnet --info
@@ -192,6 +195,17 @@ jobs:
         run: |
           cp -v scripts/dotnet/examples/Common.csproj dotnet-examples/Common/
 
+          # RestoreSources in Common.csproj doesn't propagate to parent
+          # projects. Add it via Directory.Build.props so every .csproj
+          # in dotnet-examples/ picks up /tmp/packages as a source.
+          cat > dotnet-examples/Directory.Build.props << 'EOF'
+          <Project>
+            <PropertyGroup>
+              <RestoreSources>/tmp/packages;$(RestoreSources);https://api.nuget.org/v3/index.json</RestoreSources>
+            </PropertyGroup>
+          </Project>
+          EOF
+
           ls -lh /tmp
 
           df -h
@@ -208,3 +222,28 @@ jobs:
         with:
           name: dot-net-tts-generated-test-files-${{ matrix.os }}
           path: tts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: speech-enhancement-voxlock-${{ matrix.os }}
+          # each example dir keeps its input and output wavs
+          path: dotnet-examples/speech-enhancement-voxlock/*.wav
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: speech-enhancement-voxlock-with-voice-sample-${{ matrix.os }}
+          path: dotnet-examples/speech-enhancement-voxlock-with-voice-sample/*.wav
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: streaming-speech-enhancement-voxlock-${{ matrix.os }}
+          path: dotnet-examples/streaming-speech-enhancement-voxlock/*.wav
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: streaming-speech-enhancement-voxlock-with-voice-sample-${{ matrix.os }}
+          path: dotnet-examples/streaming-speech-enhancement-voxlock-with-voice-sample/*.wav
+          if-no-files-found: warn

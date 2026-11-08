@@ -3,6 +3,7 @@
 // Copyright (c)  2022-2023  Xiaomi Corporation
 
 #include "sherpa-onnx/csrc/online-websocket-server-impl.h"
+#include "sherpa-onnx/csrc/macros.h"
 
 #include <iostream>
 #include <memory>
@@ -26,6 +27,11 @@ void OnlineWebsocketDecoderConfig::Register(ParseOptions *po) {
 
   po->Register("end-tail-padding", &end_tail_padding,
                "It determines the length of tail_padding at the end of audio.");
+
+  po->Register("input-sample-rate", &input_sample_rate,
+               "The sample rate of the input audio from the client. "
+               "If it differs from the model's expected sample rate, "
+               "the server will resample internally.");
 }
 
 void OnlineWebsocketDecoderConfig::Validate() const {
@@ -33,6 +39,7 @@ void OnlineWebsocketDecoderConfig::Validate() const {
   SHERPA_ONNX_CHECK_GT(loop_interval_ms, 0);
   SHERPA_ONNX_CHECK_GT(max_batch_size, 0);
   SHERPA_ONNX_CHECK_GT(end_tail_padding, 0);
+  SHERPA_ONNX_CHECK_GT(input_sample_rate, 0);
 }
 
 void OnlineWebsocketServerConfig::Register(sherpa_onnx::ParseOptions *po) {
@@ -71,7 +78,7 @@ std::shared_ptr<Connection> OnlineWebsocketDecoder::GetOrCreateConnection(
 
 void OnlineWebsocketDecoder::AcceptWaveform(std::shared_ptr<Connection> c) {
   std::lock_guard<std::mutex> lock(c->mutex);
-  float sample_rate = config_.recognizer_config.feat_config.sampling_rate;
+  float sample_rate = config_.input_sample_rate;
   while (!c->samples.empty()) {
     const auto &s = c->samples.front();
     c->s->AcceptWaveform(sample_rate, s.data(), s.size());
@@ -82,7 +89,7 @@ void OnlineWebsocketDecoder::AcceptWaveform(std::shared_ptr<Connection> c) {
 void OnlineWebsocketDecoder::InputFinished(std::shared_ptr<Connection> c) {
   std::lock_guard<std::mutex> lock(c->mutex);
 
-  float sample_rate = config_.recognizer_config.feat_config.sampling_rate;
+  float sample_rate = config_.input_sample_rate;
 
   while (!c->samples.empty()) {
     const auto &s = c->samples.front();
@@ -231,7 +238,7 @@ OnlineWebsocketServer::OnlineWebsocketServer(
     : config_(config),
       io_conn_(io_conn),
       io_work_(io_work),
-      log_(config.log_file, std::ios::app),
+      log_(OpenOutputFile(config.log_file, std::ios::app)),
       tee_(std::cout, log_),
       decoder_(this) {
   SetupLog();
@@ -262,13 +269,13 @@ void OnlineWebsocketServer::Run(uint16_t port) {
     } else {
       SHERPA_ONNX_LOGE("Only Zipformer2 has warmup support for now.");
       SHERPA_ONNX_LOGE("Given: %s", model_type.c_str());
-      exit(0);
+      SHERPA_ONNX_EXIT(0);
     }
   } else if (warm_up == 0) {
     SHERPA_ONNX_LOGE("Starting without warmup!");
   } else {
     SHERPA_ONNX_LOGE("Invalid Warm up Value!. Expected 0 < warm_up < 100");
-    exit(0);
+    SHERPA_ONNX_EXIT(0);
   }
   decoder_.Run();
 }

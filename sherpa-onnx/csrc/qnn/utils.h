@@ -13,10 +13,15 @@
 #include "QnnInterface.h"
 #include "System/QnnSystemInterface.h"
 #include "sherpa-onnx/csrc/macros.h"
+#include "sherpa-onnx/csrc/text-utils.h"
 
 template <typename T>
 std::vector<T> ReadFile(const std::string &filename) {
+#ifdef _WIN32
+  FILE *fp = _wfopen(sherpa_onnx::ToWideString(filename).c_str(), L"rb");
+#else
   FILE *fp = fopen(filename.c_str(), "rb");
+#endif
   if (!fp) {
     SHERPA_ONNX_LOGE("Failed to open '%s'", filename.c_str());
     return {};
@@ -35,14 +40,29 @@ std::vector<T> ReadFile(const std::string &filename) {
 
 void PrintTensor(Qnn_TensorV2_t t);
 
-// float -> uint16_t
+// float -> float
+void FillDataNonQuant(Qnn_Tensor_t *t, const float *data, int32_t n);
+
+// float -> uint16_t (quantized)
 void FillData(Qnn_Tensor_t *t, const float *data, int32_t n);
 
 // int32_t -> int32_t
 void FillData(Qnn_Tensor_t *t, const int32_t *data, int32_t n);
 
-// uint16_t -> float
+// float -> float16 (IEEE 754 half-precision, stored as uint16_t)
+void FillDataFloat16(Qnn_Tensor_t *t, const float *data, int32_t n);
+
+// uint16_t (quantized) -> float
 void GetData(const Qnn_Tensor_t *t, float *data, int32_t n);
+
+// int32_t -> int32_t
+void GetData(const Qnn_Tensor_t *t, int32_t *data, int32_t n);
+
+// float -> float
+void GetDataNonQuant(const Qnn_Tensor_t *t, float *data, int32_t n);
+
+// float16 (IEEE 754 half-precision, stored as uint16_t) -> float
+void GetDataFloat16(const Qnn_Tensor_t *t, float *data, int32_t n);
 
 void FreeTensor(Qnn_Tensor_t *t);
 

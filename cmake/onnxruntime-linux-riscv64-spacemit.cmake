@@ -13,9 +13,10 @@ if(NOT BUILD_SHARED_LIBS)
   message(FATAL_ERROR "This file is for building shared libraries. BUILD_SHARED_LIBS: ${BUILD_SHARED_LIBS}, SHERPA_ONNX_ENABLE_SPACEMIT: ${SHERPA_ONNX_ENABLE_SPACEMIT}")
 endif()
 
-set(onnxruntime_pkg_name "spacemit-ort.riscv64.2.0.1.tar.gz")
-set(onnxruntime_URL  "https://archive.spacemit.com/spacemit-ai/onnxruntime/${onnxruntime_pkg_name}")
-set(onnxruntime_HASH "SHA256=8a15035aca34d5fd95f24444d4c7843265c1a81f49d84ec6fe9c6d0fdf5b55cf")
+set(onnxruntime_version "2.0.6")
+set(onnxruntime_pkg_name "spacemit-ort.riscv64.${onnxruntime_version}.tar.gz")
+set(onnxruntime_URL  "https://github.com/spacemit-com/onnxruntime/releases/download/${onnxruntime_version}/${onnxruntime_pkg_name}")
+set(onnxruntime_HASH "SHA256=bebcdfb7df6b49eefa3863afcd85a3da2aa83c3ae9252d7d856188c38a70b0e6")
 
 # If you don't have access to the Internet,
 # please download onnxruntime to one of the following locations.
@@ -33,7 +34,6 @@ foreach(f IN LISTS possible_file_locations)
     set(onnxruntime_URL  "${f}")
     file(TO_CMAKE_PATH "${onnxruntime_URL}" onnxruntime_URL)
     message(STATUS "Found local downloaded onnxruntime: ${onnxruntime_URL}")
-    set(onnxruntime_URL2)
     break()
   endif()
 endforeach()
@@ -41,7 +41,6 @@ endforeach()
 FetchContent_Declare(onnxruntime
   URL
     ${onnxruntime_URL}
-    ${onnxruntime_URL2}
   URL_HASH          ${onnxruntime_HASH}
 )
 

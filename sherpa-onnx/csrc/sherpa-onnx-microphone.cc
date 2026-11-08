@@ -6,14 +6,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <algorithm>
-#include <clocale>
-#include <cwctype>
 #include <string>
 #include <vector>
 
 #include "portaudio.h"  // NOLINT
 #include "sherpa-onnx/csrc/display.h"
+#include "sherpa-onnx/csrc/macros.h"
 #include "sherpa-onnx/csrc/microphone.h"
 #include "sherpa-onnx/csrc/online-recognizer.h"
 
@@ -38,31 +36,6 @@ static int32_t RecordCallback(const void *input_buffer,
 static void Handler(int32_t /*sig*/) {
   stop = true;
   fprintf(stderr, "\nCaught Ctrl + C. Exiting...\n");
-}
-
-static std::string tolowerUnicode(const std::string &input_str) {
-  // Use system locale
-  std::setlocale(LC_ALL, "");
-
-  // From char string to wchar string
-  std::wstring input_wstr(input_str.size() + 1, '\0');
-  std::mbstowcs(&input_wstr[0], input_str.c_str(), input_str.size());
-  std::wstring lowercase_wstr;
-
-  for (wchar_t wc : input_wstr) {
-    if (std::iswupper(wc)) {
-      lowercase_wstr += std::towlower(wc);
-    } else {
-      lowercase_wstr += wc;
-    }
-  }
-
-  // Back to char string
-  std::string lowercase_str(input_str.size() + 1, '\0');
-  std::wcstombs(&lowercase_str[0], lowercase_wstr.c_str(),
-                lowercase_wstr.size());
-
-  return lowercase_str;
 }
 
 int32_t main(int32_t argc, char *argv[]) {
@@ -93,7 +66,7 @@ for a list of pre-trained models to download.
   po.Read(argc, argv);
   if (po.NumArgs() != 0) {
     po.PrintUsage();
-    exit(EXIT_FAILURE);
+    SHERPA_ONNX_EXIT(EXIT_FAILURE);
   }
 
   fprintf(stderr, "%s\n", config.ToString().c_str());
@@ -113,7 +86,7 @@ for a list of pre-trained models to download.
     fprintf(stderr, "No default input device found\n");
     fprintf(stderr, "If you are using Linux, please switch to \n");
     fprintf(stderr, " ./bin/sherpa-onnx-alsa \n");
-    exit(EXIT_FAILURE);
+    SHERPA_ONNX_EXIT(EXIT_FAILURE);
   }
 
   const char *pDeviceIndex = std::getenv("SHERPA_ONNX_MIC_DEVICE");
@@ -134,7 +107,7 @@ for a list of pre-trained models to download.
   if (!mic.OpenDevice(device_index, mic_sample_rate, 1, RecordCallback,
                       s.get())) {
     fprintf(stderr, "portaudio error: %d\n", device_index);
-    exit(EXIT_FAILURE);
+    SHERPA_ONNX_EXIT(EXIT_FAILURE);
   }
 
   std::string last_text;
@@ -163,7 +136,10 @@ for a list of pre-trained models to download.
 
     if (!text.empty() && last_text != text) {
       last_text = text;
-      display.Print(segment_index, tolowerUnicode(text));
+      // Print raw model text (same as sherpa-onnx file decode). Do not force
+      // lowercase here; tokens.txt case must stay consistent across sources.
+      // See https://github.com/k2-fsa/sherpa-onnx/issues/3621
+      display.Print(segment_index, text);
       fflush(stderr);
     }
 

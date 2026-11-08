@@ -4,16 +4,20 @@
 #ifndef SHERPA_ONNX_CSRC_OFFLINE_WHISPER_MODEL_CONFIG_H_
 #define SHERPA_ONNX_CSRC_OFFLINE_WHISPER_MODEL_CONFIG_H_
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
 #include "sherpa-onnx/csrc/parse-options.h"
+#include "sherpa-onnx/csrc/qnn-config.h"
 
 namespace sherpa_onnx {
 
 struct OfflineWhisperModelConfig {
   std::string encoder;
   std::string decoder;
+
+  QnnConfig qnn_config;
 
   // Available languages can be found at
   // https://github.com/openai/whisper/blob/main/whisper/tokenizer.py#L10
@@ -107,7 +111,7 @@ struct OfflineWhisperDecoderResult {
 };
 
 // used by ascend/rknn/qnn/axera, etc.
-enum class WhisperModelType {
+enum class WhisperModelType : std::uint8_t {
   Tiny,
   TinyEn,
   Base,

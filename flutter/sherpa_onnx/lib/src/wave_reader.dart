@@ -4,15 +4,13 @@ import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 
 import './sherpa_onnx_bindings.dart';
+import './wave_reader_config.dart';
 
-class WaveData {
-  WaveData({required this.samples, required this.sampleRate});
+export './wave_reader_config.dart';
 
-  /// normalized to [-1, 1]
-  Float32List samples;
-  int sampleRate;
-}
-
+/// Read a WAV file from disk.
+///
+/// Returns an empty [WaveData] object if the file cannot be read or decoded.
 WaveData readWave(String filename) {
   final Pointer<Utf8> str = filename.toNativeUtf8();
 

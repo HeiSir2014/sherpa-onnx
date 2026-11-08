@@ -2,6 +2,8 @@ export const listRawfileDir: (mgr: object, dir: string) => Array<string>;
 
 export const readWave: (filename: string, enableExternalBuffer: boolean = true) => {samples: Float32Array, sampleRate: number};
 export const readWaveFromBinary: (data: Uint8Array, enableExternalBuffer: boolean = true) => {samples: Float32Array, sampleRate: number};
+export const readWaveMultiChannel: (filename: string, enableExternalBuffer: boolean = true) => {samples: Float32Array[], sampleRate: number};
+export const writeWaveMultiChannel: (filename: string, obj: {samples: Float32Array[], sampleRate: number}) => boolean;
 export const createCircularBuffer: (capacity: number) => object;
 export const circularBufferPush: (handle: object, samples: Float32Array) => void;
 export const circularBufferGet: (handle: object, index: number, n: number, enableExternalBuffer: boolean = true) => Float32Array;
@@ -10,7 +12,7 @@ export const circularBufferSize: (handle: object) => number;
 export const circularBufferHead: (handle: object) => number;
 export const circularBufferReset: (handle: object) => void;
 
-export const createVoiceActivityDetector: (config: object, bufferSizeInSeconds: number, mgr?: object) => object;
+export const createVoiceActivityDetector: (config: object, bufferSizeInSeconds?: number, mgr?: object) => object;
 export const voiceActivityDetectorAcceptWaveform: (handle: object, samples: Float32Array) => void;
 export const voiceActivityDetectorIsEmpty: (handle: object) => boolean;
 export const voiceActivityDetectorIsDetected: (handle: object) => boolean;
@@ -40,6 +42,17 @@ export const getOnlineStreamResultAsJson: (handle: object, streamHandle: object)
 export const createOfflineTts: (config: object, mgr?: object) => object;
 export const getOfflineTtsNumSpeakers: (handle: object) => number;
 export const getOfflineTtsSampleRate: (handle: object) => number;
+export const getOfflineTtsLang: (handle: object) => string;
+
+export type SourceSeparationOutput = {
+  stems: Float32Array[][];
+  sampleRate: number;
+};
+
+export const createOfflineSourceSeparation: (config: object, mgr?: object) => object;
+export const offlineSourceSeparationGetOutputSampleRate: (handle: object) => number;
+export const offlineSourceSeparationGetNumberOfStems: (handle: object) => number;
+export const offlineSourceSeparationProcess: (handle: object, input: object) => SourceSeparationOutput;
 
 export type TtsOutput = {
   samples: Float32Array;
@@ -47,7 +60,14 @@ export type TtsOutput = {
 };
 
 export const offlineTtsGenerate: (handle: object, input: object) => TtsOutput;
+export const offlineTtsGenerateWithConfig: (handle: object, input: object) => TtsOutput;
 export const offlineTtsGenerateAsync: (handle: object, input: object) => Promise<TtsOutput>;
+export const offlineTtsGenerateAsyncWithConfig: (handle: object, input: object) => Promise<TtsOutput>;
+
+export const createOfflinePunctuation: (config: object, mgr?: object) => object;
+export const offlinePunctuationAddPunct: (handle: object, text: string) => string;
+export const createOnlinePunctuation: (config: object, mgr?: object) => object;
+export const onlinePunctuationAddPunct: (handle: object, text: string) => string;
 
 export const createSpeakerEmbeddingExtractor: (config: object, mgr?: object) => object;
 export const speakerEmbeddingExtractorDim: (handle: object) => number;

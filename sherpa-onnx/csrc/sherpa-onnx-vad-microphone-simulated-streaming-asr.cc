@@ -17,6 +17,7 @@
 
 #include "portaudio.h"  // NOLINT
 #include "sherpa-onnx/csrc/circular-buffer.h"
+#include "sherpa-onnx/csrc/macros.h"
 #include "sherpa-onnx/csrc/microphone.h"
 #include "sherpa-onnx/csrc/offline-recognizer.h"
 #include "sherpa-onnx/csrc/resample.h"
@@ -35,7 +36,7 @@ static int32_t RecordCallback(const void *input_buffer,
                               const PaStreamCallbackTimeInfo * /*time_info*/,
                               PaStreamCallbackFlags /*status_flags*/,
                               void * /*user_data*/) {
-  std::lock_guard<std::mutex> lock(mutex);
+  std::scoped_lock lock(mutex);
   samples_queue.emplace(
       reinterpret_cast<const float *>(input_buffer),
       reinterpret_cast<const float *>(input_buffer) + frames_per_buffer);
@@ -116,13 +117,13 @@ A model with RTF < 0.2 should work with this program.
 
   if (argc == 1) {
     po.PrintUsage();
-    exit(EXIT_FAILURE);
+    SHERPA_ONNX_EXIT(EXIT_FAILURE);
   }
 
   po.Read(argc, argv);
   if (po.NumArgs() != 0) {
     po.PrintUsage();
-    exit(EXIT_FAILURE);
+    SHERPA_ONNX_EXIT(EXIT_FAILURE);
   }
 
   fprintf(stdout, "%s\n", vad_config.ToString().c_str());
@@ -147,7 +148,7 @@ A model with RTF < 0.2 should work with this program.
   int32_t device_index = Pa_GetDefaultInputDevice();
   if (device_index == paNoDevice) {
     fprintf(stdout, "No default input device found\n");
-    exit(EXIT_FAILURE);
+    SHERPA_ONNX_EXIT(EXIT_FAILURE);
   }
 
   if (user_device_index >= 0) {
@@ -168,7 +169,7 @@ A model with RTF < 0.2 should work with this program.
   if (!mic.OpenDevice(device_index, mic_sample_rate, 1, RecordCallback,
                       nullptr)) {
     fprintf(stdout, "Failed to open device %d\n", device_index);
-    exit(EXIT_FAILURE);
+    SHERPA_ONNX_EXIT(EXIT_FAILURE);
   }
 
   float sample_rate = 16000;

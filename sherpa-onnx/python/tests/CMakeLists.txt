@@ -23,10 +23,12 @@ set(py_test_files
   test_feature_extractor_config.py
   test_keyword_spotter.py
   test_offline_recognizer.py
+  test_offline_tts_config.py
   test_online_recognizer.py
   test_online_transducer_model_config.py
   test_speaker_recognition.py
   test_text2token.py
+  test_vad.py
 )
 
 foreach(source IN LISTS py_test_files)

@@ -14,6 +14,8 @@ wget https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-e
 tar xf kokoro-en-v0_19.tar.bz2
 rm kokoro-en-v0_19.tar.bz2
 
+wget https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/lexicon-en-us.txt
+
 ./kokoro-tts-en-c-api
 
  */
@@ -26,7 +28,7 @@ rm kokoro-en-v0_19.tar.bz2
 #include "sherpa-onnx/c-api/c-api.h"
 
 static int32_t ProgressCallback(const float *samples, int32_t num_samples,
-                                float progress) {
+                                float progress, void *arg) {
   fprintf(stderr, "Progress: %.3f%%\n", progress * 100);
   // return 1 to continue generating
   // return 0 to stop generating
@@ -39,7 +41,7 @@ int32_t main(int32_t argc, char *argv[]) {
   config.model.kokoro.model = "./kokoro-en-v0_19/model.onnx";
   config.model.kokoro.voices = "./kokoro-en-v0_19/voices.bin";
   config.model.kokoro.tokens = "./kokoro-en-v0_19/tokens.txt";
-  config.model.kokoro.data_dir = "./kokoro-en-v0_19/espeak-ng-data";
+  config.model.kokoro.lexicon = "./lexicon-en-us.txt";
 
   config.model.num_threads = 2;
 
@@ -60,15 +62,19 @@ int32_t main(int32_t argc, char *argv[]) {
   // 6->am_michael, 7->bf_emma, 8->bf_isabella, 9->bm_george, 10->bm_lewis
   int32_t sid = 0;
   float speed = 1.0;  // larger -> faster in speech speed
+  SherpaOnnxGenerationConfig cfg = {0};
+  cfg.silence_scale = 0.2f;
+  cfg.sid = sid;
+  cfg.speed = speed;
 
 #if 0
   // If you don't want to use a callback, then please enable this branch
   const SherpaOnnxGeneratedAudio *audio =
-      SherpaOnnxOfflineTtsGenerate(tts, text, sid, speed);
+      SherpaOnnxOfflineTtsGenerateWithConfig(tts, text, &cfg, NULL, NULL);
 #else
   const SherpaOnnxGeneratedAudio *audio =
-      SherpaOnnxOfflineTtsGenerateWithProgressCallback(tts, text, sid, speed,
-                                                       ProgressCallback);
+      SherpaOnnxOfflineTtsGenerateWithConfig(tts, text, &cfg, ProgressCallback,
+                                             NULL);
 #endif
 
   SherpaOnnxWriteWave(audio->samples, audio->n, audio->sample_rate, filename);

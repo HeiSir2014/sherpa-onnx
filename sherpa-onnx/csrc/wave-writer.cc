@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "sherpa-onnx/csrc/file-utils.h"
 #include "sherpa-onnx/csrc/macros.h"
 
 namespace sherpa_onnx {
@@ -38,7 +39,8 @@ struct WaveHeader {
 }  // namespace
 
 int64_t WaveFileSize(int32_t n_samples, int32_t num_channels /*= 1*/) {
-  return sizeof(WaveHeader) + n_samples * sizeof(int16_t) * num_channels;
+  return sizeof(WaveHeader) +
+         static_cast<int64_t>(n_samples) * sizeof(int16_t) * num_channels;
 }
 
 void WriteWave(char *buffer, int32_t sampling_rate, const float *samples,
@@ -58,7 +60,7 @@ bool WriteWave(const std::string &filename, int32_t sampling_rate,
 
   WriteWave(buffer.data(), sampling_rate, samples_ch0, samples_ch1, n);
 
-  std::ofstream os(filename, std::ios::binary);
+  auto os = OpenOutputFile(filename, std::ios::binary);
   if (!os) {
     SHERPA_ONNX_LOGE("Failed to create '%s'", filename.c_str());
     return false;
@@ -75,7 +77,7 @@ bool WriteWave(const std::string &filename, int32_t sampling_rate,
 
 void WriteWave(char *buffer, int32_t sampling_rate, const float *samples_ch0,
                const float *samples_ch1, int32_t n) {
-  WaveHeader header{};
+  WaveHeader header = {};
   header.chunk_id = 0x46464952;      // FFIR
   header.format = 0x45564157;        // EVAW
   header.subchunk1_id = 0x20746d66;  // "fmt "
@@ -91,20 +93,23 @@ void WriteWave(char *buffer, int32_t sampling_rate, const float *samples_ch0,
   header.block_align = num_channels * bits_per_sample / 8;
   header.bits_per_sample = bits_per_sample;
   header.subchunk2_id = 0x61746164;  // atad
-  header.subchunk2_size = n * num_channels * bits_per_sample / 8;
+  header.subchunk2_size =
+      static_cast<int64_t>(n) * num_channels * bits_per_sample / 8;
 
   header.chunk_size = 36 + header.subchunk2_size;
 
   std::vector<int16_t> samples_int16_ch0(n);
   for (int32_t i = 0; i != n; ++i) {
-    samples_int16_ch0[i] = std::min<int32_t>(samples_ch0[i] * 32767, 32767);
+    samples_int16_ch0[i] =
+        std::clamp<int32_t>(samples_ch0[i] * 32767, -32768, 32767);
   }
 
   std::vector<int16_t> samples_int16_ch1;
   if (samples_ch1) {
     samples_int16_ch1.resize(n);
     for (int32_t i = 0; i != n; ++i) {
-      samples_int16_ch1[i] = std::min<int32_t>(samples_ch1[i] * 32767, 32767);
+      samples_int16_ch1[i] =
+          std::clamp<int32_t>(samples_ch1[i] * 32767, -32768, 32767);
     }
   }
 
@@ -119,6 +124,64 @@ void WriteWave(char *buffer, int32_t sampling_rate, const float *samples_ch0,
     for (int32_t i = 0; i != n; ++i) {
       p[2 * i] = samples_int16_ch0[i];
       p[2 * i + 1] = samples_int16_ch1[i];
+    }
+  }
+}
+
+bool WriteWaveMultiChannel(const std::string &filename, int32_t sampling_rate,
+                           const float *const *samples, int32_t num_channels,
+                           int32_t n) {
+  std::string buffer;
+  buffer.resize(WaveFileSize(n, num_channels));
+
+  WriteWaveMultiChannel(buffer.data(), sampling_rate, samples, num_channels, n);
+
+  auto os = OpenOutputFile(filename, std::ios::binary);
+  if (!os) {
+    SHERPA_ONNX_LOGE("Failed to create '%s'", filename.c_str());
+    return false;
+  }
+
+  os << buffer;
+  if (!os) {
+    SHERPA_ONNX_LOGE("Write '%s' failed", filename.c_str());
+    return false;
+  }
+
+  return true;
+}
+
+void WriteWaveMultiChannel(char *buffer, int32_t sampling_rate,
+                           const float *const *samples, int32_t num_channels,
+                           int32_t n) {
+  WaveHeader header = {};
+  header.chunk_id = 0x46464952;      // FFIR
+  header.format = 0x45564157;        // EVAW
+  header.subchunk1_id = 0x20746d66;  // "fmt "
+  header.subchunk1_size = 16;        // 16 for PCM
+  header.audio_format = 1;           // PCM =1
+
+  int32_t bits_per_sample = 16;  // int16_t
+
+  header.num_channels = num_channels;
+  header.sample_rate = sampling_rate;
+  header.byte_rate = sampling_rate * num_channels * bits_per_sample / 8;
+  header.block_align = num_channels * bits_per_sample / 8;
+  header.bits_per_sample = bits_per_sample;
+  header.subchunk2_id = 0x61746164;  // atad
+  header.subchunk2_size =
+      static_cast<int64_t>(n) * num_channels * bits_per_sample / 8;
+
+  header.chunk_size = 36 + header.subchunk2_size;
+
+  memcpy(buffer, &header, sizeof(WaveHeader));
+
+  auto p = reinterpret_cast<int16_t *>(buffer + sizeof(WaveHeader));
+
+  for (int32_t i = 0; i != n; ++i) {
+    for (int32_t c = 0; c != num_channels; ++c) {
+      p[i * num_channels + c] =
+          std::clamp<int32_t>(samples[c][i] * 32767, -32768, 32767);
     }
   }
 }

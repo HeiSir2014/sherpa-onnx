@@ -3,71 +3,17 @@ import 'dart:ffi';
 import 'package:ffi/ffi.dart';
 
 import './sherpa_onnx_bindings.dart';
+import './offline_punctuation_config.dart';
 
-class OfflinePunctuationModelConfig {
-  OfflinePunctuationModelConfig(
-      {required this.ctTransformer,
-      this.numThreads = 1,
-      this.provider = 'cpu',
-      this.debug = true});
+export './offline_punctuation_config.dart';
 
-  factory OfflinePunctuationModelConfig.fromJson(Map<String, dynamic> json) {
-    return OfflinePunctuationModelConfig(
-      ctTransformer: json['ctTransformer'] as String,
-      numThreads: json['numThreads'] as int? ?? 1,
-      provider: json['provider'] as String? ?? 'cpu',
-      debug: json['debug'] as bool? ?? true,
-    );
-  }
-
-  @override
-  String toString() {
-    return 'OfflinePunctuationModelConfig(ctTransformer: $ctTransformer, numThreads: $numThreads, provider: $provider, debug: $debug)';
-  }
-
-  Map<String, dynamic> toJson() => {
-        'ctTransformer': ctTransformer,
-        'numThreads': numThreads,
-        'provider': provider,
-        'debug': debug,
-      };
-
-  final String ctTransformer;
-  final int numThreads;
-  final String provider;
-  final bool debug;
-}
-
-class OfflinePunctuationConfig {
-  OfflinePunctuationConfig({
-    required this.model,
-  });
-
-  factory OfflinePunctuationConfig.fromJson(Map<String, dynamic> json) {
-    return OfflinePunctuationConfig(
-      model: OfflinePunctuationModelConfig.fromJson(
-          json['model'] as Map<String, dynamic>),
-    );
-  }
-
-  @override
-  String toString() {
-    return 'OfflinePunctuationConfig(model: $model)';
-  }
-
-  Map<String, dynamic> toJson() => {
-        'model': model.toJson(),
-      };
-
-  final OfflinePunctuationModelConfig model;
-}
-
+/// Offline punctuation restorer.
 class OfflinePunctuation {
   OfflinePunctuation.fromPtr({required this.ptr, required this.config});
 
   OfflinePunctuation._({required this.ptr, required this.config});
 
-  // The user has to invoke OfflinePunctuation.free() to avoid memory leak.
+  /// Create an offline punctuator from [config].
   factory OfflinePunctuation({required OfflinePunctuationConfig config}) {
     if (SherpaOnnxBindings.sherpaOnnxCreateOfflinePunctuation == null) {
       throw Exception("Please initialize sherpa-onnx first");
@@ -99,12 +45,29 @@ class OfflinePunctuation {
     return OfflinePunctuation._(ptr: ptr, config: config);
   }
 
+  /// Release the native punctuator.
   void free() {
+    if (SherpaOnnxBindings.sherpaOnnxDestroyOfflinePunctuation == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr) {
+      return;
+    }
     SherpaOnnxBindings.sherpaOnnxDestroyOfflinePunctuation?.call(ptr);
     ptr = nullptr;
   }
 
+  /// Add punctuation to [text].
   String addPunct(String text) {
+    if (SherpaOnnxBindings.sherpaOfflinePunctuationAddPunct == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr) {
+      return '';
+    }
+
     final textPtr = text.toNativeUtf8();
 
     final p = SherpaOnnxBindings.sherpaOfflinePunctuationAddPunct

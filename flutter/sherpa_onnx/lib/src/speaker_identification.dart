@@ -5,48 +5,20 @@ import 'package:ffi/ffi.dart';
 
 import './online_stream.dart';
 import './sherpa_onnx_bindings.dart';
+import './speaker_identification_config.dart';
 
-class SpeakerEmbeddingExtractorConfig {
-  const SpeakerEmbeddingExtractorConfig(
-      {required this.model,
-      this.numThreads = 1,
-      this.debug = true,
-      this.provider = 'cpu'});
+export './speaker_identification_config.dart';
 
-  factory SpeakerEmbeddingExtractorConfig.fromJson(Map<String, dynamic> json) {
-    return SpeakerEmbeddingExtractorConfig(
-      model: json['model'] as String,
-      numThreads: json['numThreads'] as int? ?? 1,
-      debug: json['debug'] as bool? ?? true,
-      provider: json['provider'] as String? ?? 'cpu',
-    );
-  }
-
-  @override
-  String toString() {
-    return 'SpeakerEmbeddingExtractorConfig(model: $model, numThreads: $numThreads, debug: $debug, provider: $provider)';
-  }
-
-  Map<String, dynamic> toJson() => {
-        'model': model,
-        'numThreads': numThreads,
-        'debug': debug,
-        'provider': provider,
-      };
-
-  final String model;
-  final int numThreads;
-  final bool debug;
-  final String provider;
-}
-
+/// Speaker embedding extractor.
+///
+/// Feed audio through an [OnlineStream], then call [compute] to obtain a fixed
+/// dimensional embedding suitable for search or verification.
 class SpeakerEmbeddingExtractor {
   SpeakerEmbeddingExtractor.fromPtr({required this.ptr, required this.dim});
 
   SpeakerEmbeddingExtractor._({required this.ptr, required this.dim});
 
-  /// The user is responsible to call the SpeakerEmbeddingExtractor.free()
-  /// method of the returned instance to avoid memory leak.
+  /// Create an extractor from [config].
   factory SpeakerEmbeddingExtractor(
       {required SpeakerEmbeddingExtractorConfig config}) {
     final c = calloc<SherpaOnnxSpeakerEmbeddingExtractorConfig>();
@@ -81,29 +53,66 @@ class SpeakerEmbeddingExtractor {
     return SpeakerEmbeddingExtractor._(ptr: ptr, dim: dim);
   }
 
+  /// Release the native extractor.
   void free() {
+    if (SherpaOnnxBindings.destroySpeakerEmbeddingExtractor == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr) {
+      return;
+    }
     SherpaOnnxBindings.destroySpeakerEmbeddingExtractor?.call(ptr);
     ptr = nullptr;
   }
 
-  /// The user has to invoke stream.free() on the returned instance
-  /// to avoid memory leak
+  /// Create an input stream for embedding extraction.
   OnlineStream createStream() {
+    if (SherpaOnnxBindings.speakerEmbeddingExtractorCreateStream == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr) {
+      throw Exception("Failed to create online stream");
+    }
+
     final p =
         SherpaOnnxBindings.speakerEmbeddingExtractorCreateStream?.call(ptr) ??
             nullptr;
 
+    if (p == nullptr) {
+      throw Exception("Failed to create online stream");
+    }
+
     return OnlineStream(ptr: p);
   }
 
+  /// Return `true` if [stream] has enough audio for embedding extraction.
   bool isReady(OnlineStream stream) {
+    if (SherpaOnnxBindings.speakerEmbeddingExtractorIsReady == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr || stream.ptr == nullptr) {
+      return false;
+    }
+
     final int ready = SherpaOnnxBindings.speakerEmbeddingExtractorIsReady
             ?.call(ptr, stream.ptr) ??
         0;
     return ready == 1;
   }
 
+  /// Compute an embedding for [stream].
   Float32List compute(OnlineStream stream) {
+    if (SherpaOnnxBindings.speakerEmbeddingExtractorComputeEmbedding == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr || stream.ptr == nullptr) {
+      return Float32List(0);
+    }
+
     final Pointer<Float> embedding = SherpaOnnxBindings
             .speakerEmbeddingExtractorComputeEmbedding
             ?.call(ptr, stream.ptr) ??
@@ -127,26 +136,56 @@ class SpeakerEmbeddingExtractor {
   final int dim;
 }
 
+/// In-memory store of named speaker embeddings.
+///
+/// Use this class to add reference embeddings, search for the best matching
+/// speaker, and verify whether a candidate embedding belongs to a known
+/// identity.
 class SpeakerEmbeddingManager {
   SpeakerEmbeddingManager.fromPtr({required this.ptr, required this.dim});
 
   SpeakerEmbeddingManager._({required this.ptr, required this.dim});
 
-  // The user has to use SpeakerEmbeddingManager.free() to avoid memory leak
+  /// Create a manager for embeddings whose dimension is [dim].
   factory SpeakerEmbeddingManager(int dim) {
+    if (SherpaOnnxBindings.createSpeakerEmbeddingManager == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
     final p =
         SherpaOnnxBindings.createSpeakerEmbeddingManager?.call(dim) ?? nullptr;
+
+    if (p == nullptr) {
+      throw Exception("Failed to create speaker embedding manager");
+    }
+
     return SpeakerEmbeddingManager._(ptr: p, dim: dim);
   }
 
+  /// Release the native manager.
   void free() {
+    if (SherpaOnnxBindings.destroySpeakerEmbeddingManager == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr) {
+      return;
+    }
     SherpaOnnxBindings.destroySpeakerEmbeddingManager?.call(ptr);
     ptr = nullptr;
   }
 
-  /// Return true if added successfully; return false otherwise
+  /// Add one reference embedding for [name].
   bool add({required String name, required Float32List embedding}) {
     assert(embedding.length == dim, '${embedding.length} vs $dim');
+
+    if (SherpaOnnxBindings.speakerEmbeddingManagerAdd == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr) {
+      return false;
+    }
 
     final Pointer<Utf8> namePtr = name.toNativeUtf8();
     final int n = embedding.length;
@@ -165,8 +204,17 @@ class SpeakerEmbeddingManager {
     return ok == 1;
   }
 
+  /// Add multiple reference embeddings for [name].
   bool addMulti(
       {required String name, required List<Float32List> embeddingList}) {
+    if (SherpaOnnxBindings.speakerEmbeddingManagerAddListFlattened == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr) {
+      return false;
+    }
+
     final Pointer<Utf8> namePtr = name.toNativeUtf8();
     final int n = embeddingList.length;
 
@@ -191,7 +239,16 @@ class SpeakerEmbeddingManager {
     return ok == 1;
   }
 
+  /// Return `true` if [name] exists in the manager.
   bool contains(String name) {
+    if (SherpaOnnxBindings.speakerEmbeddingManagerContains == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr) {
+      return false;
+    }
+
     final Pointer<Utf8> namePtr = name.toNativeUtf8();
 
     final int found = SherpaOnnxBindings.speakerEmbeddingManagerContains
@@ -203,7 +260,16 @@ class SpeakerEmbeddingManager {
     return found == 1;
   }
 
+  /// Remove all embeddings associated with [name].
   bool remove(String name) {
+    if (SherpaOnnxBindings.speakerEmbeddingManagerRemove == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr) {
+      return false;
+    }
+
     final Pointer<Utf8> namePtr = name.toNativeUtf8();
 
     final int ok =
@@ -215,9 +281,19 @@ class SpeakerEmbeddingManager {
     return ok == 1;
   }
 
-  /// Return an empty string if no speaker is found
+  /// Search for the best matching speaker above [threshold].
+  ///
+  /// Returns an empty string if no speaker is found.
   String search({required Float32List embedding, required double threshold}) {
     assert(embedding.length == dim);
+
+    if (SherpaOnnxBindings.speakerEmbeddingManagerSearch == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr) {
+      return '';
+    }
 
     final Pointer<Float> p = calloc<Float>(dim);
     final pList = p.asTypedList(dim);
@@ -240,11 +316,20 @@ class SpeakerEmbeddingManager {
     return ans;
   }
 
+  /// Verify whether [embedding] matches [name] above [threshold].
   bool verify(
       {required String name,
-      required Float32List embedding,
-      required double threshold}) {
+       required Float32List embedding,
+       required double threshold}) {
     assert(embedding.length == dim);
+
+    if (SherpaOnnxBindings.speakerEmbeddingManagerVerify == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr) {
+      return false;
+    }
 
     final Pointer<Utf8> namePtr = name.toNativeUtf8();
 
@@ -262,10 +347,24 @@ class SpeakerEmbeddingManager {
     return ok == 1;
   }
 
-  int get numSpeakers =>
-      SherpaOnnxBindings.speakerEmbeddingManagerNumSpeakers?.call(ptr) ?? 0;
+  int get numSpeakers {
+    if (SherpaOnnxBindings.speakerEmbeddingManagerNumSpeakers == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr) {
+      return 0;
+    }
+
+    return SherpaOnnxBindings.speakerEmbeddingManagerNumSpeakers?.call(ptr) ??
+        0;
+  }
 
   List<String> get allSpeakerNames {
+    if (SherpaOnnxBindings.speakerEmbeddingManagerGetAllSpeakers == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
     int n = numSpeakers;
     if (n == 0) {
       return <String>[];

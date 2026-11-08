@@ -45,18 +45,18 @@ class OfflineFireRedAsrModel::Impl {
         env_(ORT_LOGGING_LEVEL_ERROR),
         sess_opts_(GetSessionOptions(config)),
         allocator_{},
-        cpu_mem_info_(Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator,
-                                                 OrtMemTypeDefault)),
+        cpu_mem_info_(
+            Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault)),
         is_cpu_provider_(config.provider == "cpu" || config.provider.empty()) {
-    {
-      auto buf = ReadFile(config.fire_red_asr.encoder);
-      InitEncoder(buf.data(), buf.size());
-    }
+    encoder_sess_ = std::make_unique<Ort::Session>(
+        env_, SHERPA_ONNX_TO_ORT_PATH(config.fire_red_asr.encoder),
+        sess_opts_);
+    InitEncoder(nullptr, 0);
 
-    {
-      auto buf = ReadFile(config.fire_red_asr.decoder);
-      InitDecoder(buf.data(), buf.size());
-    }
+    decoder_sess_ = std::make_unique<Ort::Session>(
+        env_, SHERPA_ONNX_TO_ORT_PATH(config.fire_red_asr.decoder),
+        sess_opts_);
+    InitDecoder(nullptr, 0);
 
     InitCudaIOBinding();
   }
@@ -67,8 +67,8 @@ class OfflineFireRedAsrModel::Impl {
         env_(ORT_LOGGING_LEVEL_ERROR),
         sess_opts_(GetSessionOptions(config)),
         allocator_{},
-        cpu_mem_info_(Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator,
-                                                 OrtMemTypeDefault)),
+        cpu_mem_info_(
+            Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault)),
         is_cpu_provider_(config.provider == "cpu" || config.provider.empty()) {
     {
       auto buf = ReadFile(mgr, config.fire_red_asr.encoder);
@@ -157,10 +157,18 @@ class OfflineFireRedAsrModel::Impl {
         std::move(decoder_input[4]), std::move(decoder_input[5])};
   }
 
-  std::pair<Ort::Value, Ort::Value> GetInitialSelfKVCache() {
+  std::pair<Ort::Value, Ort::Value> GetInitialSelfKVCache(int32_t alloc_len) {
+    if (fixed_cache_len_ > 0) {
+      // Some models (e.g., FireRedASR v1) hard-code the cache length in the
+      // decoder graph. We have to follow the model in that case.
+      alloc_len = fixed_cache_len_;
+    } else if (alloc_len <= 0 || alloc_len > meta_data_.max_len) {
+      alloc_len = meta_data_.max_len;
+    }
+
     int32_t batch_size = 1;
     std::array<int64_t, 5> shape{meta_data_.num_decoder_layers, batch_size,
-                                 meta_data_.max_len, meta_data_.num_head,
+                                 alloc_len, meta_data_.num_head,
                                  meta_data_.head_dim};
 
     Ort::Value n_layer_self_k_cache = Ort::Value::CreateTensor<float>(
@@ -188,8 +196,15 @@ class OfflineFireRedAsrModel::Impl {
 
  private:
   void InitEncoder(void *model_data, size_t model_data_length) {
-    encoder_sess_ = std::make_unique<Ort::Session>(
-        env_, model_data, model_data_length, sess_opts_);
+    if (model_data) {
+      encoder_sess_ = std::make_unique<Ort::Session>(
+          env_, model_data, model_data_length, sess_opts_);
+    } else if (!encoder_sess_) {
+      SHERPA_ONNX_LOGE(
+          "Please pass model data or initialize the encoder session outside of "
+          "this function");
+      SHERPA_ONNX_EXIT(-1);
+    }
 
     GetInputNames(encoder_sess_.get(), &encoder_input_names_,
                   &encoder_input_names_ptr_);
@@ -225,18 +240,40 @@ class OfflineFireRedAsrModel::Impl {
   }
 
   void InitDecoder(void *model_data, size_t model_data_length) {
-    decoder_sess_ = std::make_unique<Ort::Session>(
-        env_, model_data, model_data_length, sess_opts_);
+    if (model_data) {
+      decoder_sess_ = std::make_unique<Ort::Session>(
+          env_, model_data, model_data_length, sess_opts_);
+    } else if (!decoder_sess_) {
+      SHERPA_ONNX_LOGE(
+          "Please pass model data or initialize the decoder session outside of "
+          "this function");
+      SHERPA_ONNX_EXIT(-1);
+    }
 
     GetInputNames(decoder_sess_.get(), &decoder_input_names_,
                   &decoder_input_names_ptr_);
 
     GetOutputNames(decoder_sess_.get(), &decoder_output_names_,
                    &decoder_output_names_ptr_);
+
+    // Detect whether the cache length is hard-coded in the model, e.g.,
+    // FireRedASR v1 uses 1024 while FireRedASR2 uses a dynamic length.
+    for (size_t i = 0; i != decoder_input_names_.size(); ++i) {
+      if (decoder_input_names_[i] == "in_n_layer_self_k_cache") {
+        auto shape = decoder_sess_->GetInputTypeInfo(i)
+                         .GetTensorTypeAndShapeInfo()
+                         .GetShape();
+        if (shape.size() >= 3 && shape[2] > 0) {
+          fixed_cache_len_ = static_cast<int32_t>(shape[2]);
+        }
+        break;
+      }
+    }
   }
 
   void InitCudaIOBinding() {
-    use_cuda_iobinding_ = (!is_cpu_provider_ && IsCudaProvider(config_.provider));
+    use_cuda_iobinding_ =
+        (!is_cpu_provider_ && IsCudaProvider(config_.provider));
     if (use_cuda_iobinding_) {
       // Use device 0 by default. SessionOptions() in sherpa-onnx usually
       // configures the CUDA EP device; binding here only affects output memory.
@@ -272,6 +309,10 @@ class OfflineFireRedAsrModel::Impl {
   std::vector<const char *> decoder_output_names_ptr_;
 
   OfflineFireRedAsrModelMetaData meta_data_;
+
+  // If > 0, the decoder model hard-codes the KV cache length (e.g.,
+  // FireRedASR v1 uses 1024); 0 means the length is dynamic.
+  int32_t fixed_cache_len_ = 0;
 };
 
 OfflineFireRedAsrModel::OfflineFireRedAsrModel(const OfflineModelConfig &config)
@@ -304,8 +345,8 @@ OfflineFireRedAsrModel::ForwardDecoder(Ort::Value tokens,
 }
 
 std::pair<Ort::Value, Ort::Value>
-OfflineFireRedAsrModel::GetInitialSelfKVCache() const {
-  return impl_->GetInitialSelfKVCache();
+OfflineFireRedAsrModel::GetInitialSelfKVCache(int32_t alloc_len) const {
+  return impl_->GetInitialSelfKVCache(alloc_len);
 }
 
 OrtAllocator *OfflineFireRedAsrModel::Allocator() const {

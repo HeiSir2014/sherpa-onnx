@@ -4,100 +4,20 @@ import 'dart:ffi';
 
 import 'package:ffi/ffi.dart';
 
-import './feature_config.dart';
 import './online_stream.dart';
-import './online_recognizer.dart';
 import './sherpa_onnx_bindings.dart';
 import './utils.dart';
+import './keyword_spotter_config.dart';
 
-class KeywordSpotterConfig {
-  const KeywordSpotterConfig({
-    this.feat = const FeatureConfig(),
-    required this.model,
-    this.maxActivePaths = 4,
-    this.numTrailingBlanks = 1,
-    this.keywordsScore = 1.0,
-    this.keywordsThreshold = 0.25,
-    this.keywordsFile = '',
-    this.keywordsBuf = '',
-    this.keywordsBufSize = 0,
-  });
+export './keyword_spotter_config.dart';
 
-  factory KeywordSpotterConfig.fromJson(Map<String, dynamic> json) {
-    return KeywordSpotterConfig(
-      feat: json['feat'] != null
-          ? FeatureConfig.fromJson(json['feat'] as Map<String, dynamic>)
-          : const FeatureConfig(),
-      model: OnlineModelConfig.fromJson(json['model'] as Map<String, dynamic>),
-      maxActivePaths: json['maxActivePaths'] as int? ?? 4,
-      numTrailingBlanks: json['numTrailingBlanks'] as int? ?? 1,
-      keywordsScore: (json['keywordsScore'] as num?)?.toDouble() ?? 1.0,
-      keywordsThreshold:
-          (json['keywordsThreshold'] as num?)?.toDouble() ?? 0.25,
-      keywordsFile: json['keywordsFile'] as String? ?? '',
-      keywordsBuf: json['keywordsBuf'] as String? ?? '',
-      keywordsBufSize: json['keywordsBufSize'] as int? ?? 0,
-    );
-  }
-
-  @override
-  String toString() {
-    return 'KeywordSpotterConfig(feat: $feat, model: $model, maxActivePaths: $maxActivePaths, numTrailingBlanks: $numTrailingBlanks, keywordsScore: $keywordsScore, keywordsThreshold: $keywordsThreshold, keywordsFile: $keywordsFile, keywordsBuf: $keywordsBuf, keywordsBufSize: $keywordsBufSize)';
-  }
-
-  Map<String, dynamic> toJson() => {
-        'feat': feat.toJson(),
-        'model': model.toJson(),
-        'maxActivePaths': maxActivePaths,
-        'numTrailingBlanks': numTrailingBlanks,
-        'keywordsScore': keywordsScore,
-        'keywordsThreshold': keywordsThreshold,
-        'keywordsFile': keywordsFile,
-        'keywordsBuf': keywordsBuf,
-        'keywordsBufSize': keywordsBufSize,
-      };
-
-  final FeatureConfig feat;
-  final OnlineModelConfig model;
-
-  final int maxActivePaths;
-  final int numTrailingBlanks;
-
-  final double keywordsScore;
-  final double keywordsThreshold;
-  final String keywordsFile;
-  final String keywordsBuf;
-  final int keywordsBufSize;
-}
-
-class KeywordResult {
-  KeywordResult({required this.keyword});
-
-  factory KeywordResult.fromJson(Map<String, dynamic> json) {
-    return KeywordResult(
-      keyword: json['keyword'] as String? ?? '',
-    );
-  }
-
-  @override
-  String toString() {
-    return 'KeywordResult(keyword: $keyword)';
-  }
-
-  Map<String, dynamic> toJson() => {
-        'keyword': keyword,
-      };
-
-  final String keyword;
-}
-
+/// Streaming keyword spotter.
 class KeywordSpotter {
   KeywordSpotter.fromPtr({required this.ptr, required this.config});
 
   KeywordSpotter._({required this.ptr, required this.config});
 
-  /// The user is responsible to call the OnlineRecognizer.free()
-  /// method of the returned instance to avoid memory leak.
+  /// Create a keyword spotter from [config].
   factory KeywordSpotter(KeywordSpotterConfig config) {
     final c = calloc<SherpaOnnxKeywordSpotterConfig>();
     c.ref.feat.sampleRate = config.feat.sampleRate;
@@ -170,16 +90,43 @@ class KeywordSpotter {
     return KeywordSpotter._(ptr: ptr, config: config);
   }
 
+  /// Release the native keyword spotter.
   void free() {
+    if (SherpaOnnxBindings.destroyKeywordSpotter == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr) {
+      return;
+    }
     SherpaOnnxBindings.destroyKeywordSpotter?.call(ptr);
     ptr = nullptr;
   }
 
-  /// The user has to invoke stream.free() on the returned instance
-  /// to avoid memory leak
+  /// Create a streaming input stream.
+  ///
+  /// If [keywords] is provided, it overrides the configured keywords for that
+  /// stream.
   OnlineStream createStream({String keywords = ''}) {
     if (keywords == '') {
+      if (SherpaOnnxBindings.createKeywordStream == null) {
+        throw Exception("Please initialize sherpa-onnx first");
+      }
+    } else {
+      if (SherpaOnnxBindings.createKeywordStreamWithKeywords == null) {
+        throw Exception("Please initialize sherpa-onnx first");
+      }
+    }
+
+    if (ptr == nullptr) {
+      throw Exception("Failed to create online stream");
+    }
+
+    if (keywords == '') {
       final p = SherpaOnnxBindings.createKeywordStream?.call(ptr) ?? nullptr;
+      if (p == nullptr) {
+        throw Exception("Failed to create online stream");
+      }
       return OnlineStream(ptr: p);
     }
 
@@ -188,17 +135,40 @@ class KeywordSpotter {
         SherpaOnnxBindings.createKeywordStreamWithKeywords?.call(ptr, utf8) ??
             nullptr;
     calloc.free(utf8);
+
+    if (p == nullptr) {
+      throw Exception("Failed to create online stream");
+    }
+
     return OnlineStream(ptr: p);
   }
 
+  /// Return `true` if [stream] has enough audio for another decode step.
   bool isReady(OnlineStream stream) {
+    if (SherpaOnnxBindings.isKeywordStreamReady == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr || stream.ptr == nullptr) {
+      return false;
+    }
+
     int ready =
         SherpaOnnxBindings.isKeywordStreamReady?.call(ptr, stream.ptr) ?? 0;
 
     return ready == 1;
   }
 
+  /// Fetch the current keyword spotting result for [stream].
   KeywordResult getResult(OnlineStream stream) {
+    if (SherpaOnnxBindings.getKeywordResultAsJson == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr || stream.ptr == nullptr) {
+      return KeywordResult(keyword: '');
+    }
+
     final json =
         SherpaOnnxBindings.getKeywordResultAsJson?.call(ptr, stream.ptr) ??
             nullptr;
@@ -215,11 +185,27 @@ class KeywordSpotter {
     );
   }
 
+  /// Decode one incremental step for [stream].
   void decode(OnlineStream stream) {
+    if (SherpaOnnxBindings.decodeKeywordStream == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr || stream.ptr == nullptr) {
+      return;
+    }
     SherpaOnnxBindings.decodeKeywordStream?.call(ptr, stream.ptr);
   }
 
+  /// Reset the internal state for [stream].
   void reset(OnlineStream stream) {
+    if (SherpaOnnxBindings.resetKeywordStream == null) {
+      throw Exception("Please initialize sherpa-onnx first");
+    }
+
+    if (ptr == nullptr || stream.ptr == nullptr) {
+      return;
+    }
     SherpaOnnxBindings.resetKeywordStream?.call(ptr, stream.ptr);
   }
 

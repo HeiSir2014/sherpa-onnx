@@ -1,0 +1,517 @@
+name: export-whisper-qnn
+
+on:
+  push:
+    branches:
+      - cpp-qnn-whisper-2
+  workflow_dispatch:
+
+concurrency:
+  group: export-whisper-qnn-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  onnx:
+    if: github.repository_owner == 'k2-fsa' || github.repository_owner == 'csukuangfj'
+    name: Export onnx
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        model_name: ["tiny", "tiny.en", "base", "base.en", "small", "small.en", "medium", "medium.en", "distil-medium.en", "distil-small.en", "medium-aishell"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python3 -m pip install \
+            torch==2.6.0 torchaudio==2.6.0 -f https://download.pytorch.org/whl/cpu/torch_stable.html "numpy<2" \
+            openai-whisper \
+            onnxruntime onnx soundfile librosa
+
+      - name: Export models
+        shell: bash
+        run: |
+          model_name=${{ matrix.model_name }}
+          cd scripts/whisper/qnn
+
+          model=$model_name
+          echo "model: $model"
+          if [[ $model == distil-medium.en ]]; then
+            wget -q -O distil-medium-en-original-model.bin https://huggingface.co/distil-whisper/distil-medium.en/resolve/main/original-model.bin
+            ls -lh
+          elif [[ $model == distil-large-v2 ]]; then
+            wget -q -O distil-large-v2-original-model.bin https://huggingface.co/distil-whisper/distil-large-v2/resolve/main/original-model.bin
+            ls -lh
+          elif [[ $model == distil-large-v3 ]]; then
+            wget -q -O distil-large-v3-original-model.bin https://huggingface.co/distil-whisper/distil-large-v3-openai/resolve/main/model.bin
+            ls -lh
+          elif [[ $model == distil-large-v3.5 ]]; then
+            wget -q -O distil-large-v3.5-original-model.bin https://huggingface.co/distil-whisper/distil-large-v3.5-openai/resolve/main/model.bin
+            ls -lh
+          elif [[ $model == distil-small.en ]]; then
+            wget -q -O distil-small-en-original-model.bin https://huggingface.co/distil-whisper/distil-small.en/resolve/main/original-model.bin
+            ls -lh
+          elif [[ $model == medium-aishell ]]; then
+            wget -q -O medium-aishell.pt https://huggingface.co/yuekai/icefall_asr_aishell_whisper/resolve/main/exp_medium/whisper-medium-aishell1-epoch-10-avg-4.pt
+            ls -lh
+          fi
+
+          wget https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/resolve/main/test_wavs/0.wav
+          wget https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/resolve/main/test_wavs/1.wav
+          wget https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny.en/resolve/main/test_wavs/8k.wav
+
+          python3 ./export_onnx.py --model $model_name
+
+          ls -lh
+
+          python3 ./test_onnx.py --model $model_name --wav ./0.wav
+          python3 ./test_onnx.py --model $model_name --wav ./1.wav
+          python3 ./test_onnx.py --model $model_name --wav ./8k.wav
+
+      - name: Collect models
+        shell: bash
+        run: |
+          model_name=${{ matrix.model_name }}
+
+          src=scripts/whisper/qnn
+          dst=${model_name}
+
+          mkdir -p $dst
+
+          mv -v $src/${model_name}-encoder.onnx $dst/encoder.onnx
+          mv -v $src/${model_name}-decoder.onnx $dst/decoder.onnx
+          cp -v $src/${model_name}-tokens.txt $dst/tokens.txt
+          cp -v $src/*.wav $dst
+
+          ls -lh $dst/
+          tar cjvf $dst.tar.bz2 $dst
+          ls -lh *.tar.bz2
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.model_name }}
+          path: ./*.tar.bz2
+
+  generate_build_matrix:
+    if: github.repository_owner == 'csukuangfj' || github.repository_owner == 'k2-fsa'
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generating build matrix
+        id: set-matrix
+        run: |
+          # outputting for debugging purposes
+          python3 .github/scripts/export-qnn/generate_whisper.py
+          MATRIX=$(python3 .github/scripts/export-qnn/generate_whisper.py)
+
+          # deprecated
+          # echo "::set-output name=matrix::${MATRIX}"
+          echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+
+  qnn:
+    needs: [generate_build_matrix, onnx]
+    if: github.repository_owner == 'k2-fsa' || github.repository_owner == 'csukuangfj'
+    name: ${{ matrix.model_name }} ${{ matrix.soc }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        ${{ fromJson(needs.generate_build_matrix.outputs.matrix) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Retrieve artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.model_name }}
+          path: /tmp/
+
+      - name: Show
+        shell: bash
+        run: |
+          model_name=${{ matrix.model_name }}
+
+          dir=$PWD
+          mkdir -p model-files
+
+          ls -lh /tmp/
+
+          pushd /tmp
+
+          src=${model_name}
+
+          ls -lh $src.tar.bz2
+
+          tar xvf $src.tar.bz2
+          rm $src.tar.bz2
+
+          echo "---"
+
+          ls -lh $src/*
+          popd
+
+          mv -v /tmp/$src/* $dir/model-files/
+
+      - name: Show
+        shell: bash
+        run: |
+          ls -lh model-files
+
+      - name: Setup Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Create directories
+        shell: bash
+        run: |
+          mkdir so binary
+
+      - name: Display NDK HOME
+        shell: bash
+        run: |
+          echo "ANDROID_NDK_LATEST_HOME: ${ANDROID_NDK_LATEST_HOME}"
+          ls -lh ${ANDROID_NDK_LATEST_HOME}
+
+      - name: Create Python virtual environment
+        shell: bash
+        run: |
+          python3 -m venv py310
+          which python3
+          source py310/bin/activate
+          which python3
+
+      - name: Show ndk-build help
+        shell: bash
+        run: |
+          export PATH=${ANDROID_NDK_LATEST_HOME}:$PATH
+          ndk-build --help
+
+      - name: Download toolkit
+        shell: bash
+        run: |
+          url=https://huggingface.co/csukuangfj/qnn-toolkit/resolve/main/v2.40.0.251030.zip
+          for i in $(seq 1 10); do
+            curl -SL -O $url
+            size=$(stat -c%s v2.40.0.251030.zip 2>/dev/null || stat -f%z v2.40.0.251030.zip 2>/dev/null)
+            if [ "$size" -gt 100000000 ]; then
+              echo "Download succeeded, size=$size"
+              break
+            fi
+            echo "Download failed (size=$size), retrying in 30s... ($i/10)"
+            rm -f v2.40.0.251030.zip
+            sleep 30
+          done
+          ls -lh v2.40.0.251030.zip
+
+      - name: Unzip toolkit
+        shell: bash
+        run: |
+          unzip v2.40.0.251030.zip
+
+      - name: Show
+        shell: bash
+        run: |
+          ls -lh
+
+          echo "---ls -lh qairt---"
+
+          ls -lh qairt
+
+          echo "---"
+
+      - name: Install linux dependencies
+        shell: bash
+        run: |
+          ls -lh
+
+          echo "---"
+
+          ls -lh qairt
+
+          cd qairt/2.40.0.251030/bin
+          source envsetup.sh
+
+          yes | sudo ${QNN_SDK_ROOT}/bin/check-linux-dependency.sh || true
+
+      - name: Install Python dependencies
+        shell: bash
+        run: |
+          source py310/bin/activate
+
+          cd qairt/2.40.0.251030/bin
+          source envsetup.sh
+
+          python3 -m pip install \
+            mock \
+            numpy \
+            opencv-python \
+            optuna \
+            packaging \
+            pandas \
+            paramiko \
+            pathlib2 \
+            pillow \
+            plotly \
+            protobuf \
+            psutil \
+            pydantic \
+            pytest \
+            pyyaml \
+            rich \
+            scikit-optimize \
+            scipy \
+            six \
+            tabulate \
+            typing-extensions \
+            xlsxwriter
+
+          python3 "${QNN_SDK_ROOT}/bin/check-python-dependency" || true
+
+          which python3
+
+      - name: Install onnx dependencies
+        shell: bash
+        run: |
+          source py310/bin/activate
+          python3 -m pip install --upgrade \
+            torch==2.0.0+cpu -f https://download.pytorch.org/whl/torch \
+            kaldi_native_fbank \
+            pip \
+            "numpy<2" \
+            onnx==1.17.0 \
+            onnxruntime \
+            soundfile \
+            librosa \
+            onnxsim \
+            sentencepiece \
+            pyyaml
+
+          which python3
+
+      - name: Show qnn-onnx-converter help
+        shell: bash
+        run: |
+          source py310/bin/activate
+
+          pushd qairt/2.40.0.251030/bin
+          source envsetup.sh
+          popd
+
+          qnn-onnx-converter --help
+
+      - name: Show qnn-model-lib-generator help
+        shell: bash
+        run: |
+          source py310/bin/activate
+
+          pushd qairt/2.40.0.251030/bin
+          source envsetup.sh
+          popd
+
+          qnn-model-lib-generator --help
+
+      - name: Show qnn-net-run help
+        shell: bash
+        run: |
+          source py310/bin/activate
+
+          pushd qairt/2.40.0.251030/bin
+          source envsetup.sh
+          popd
+
+          qnn-net-run --help
+
+      - name: Run
+        shell: bash
+        run: |
+          source py310/bin/activate
+
+          pushd qairt/2.40.0.251030/bin
+          source envsetup.sh
+          popd
+
+          export PATH=${ANDROID_NDK_LATEST_HOME}:$PATH
+
+          ndk-build --help
+
+
+          export LDFLAGS="-Wl,-z,max-page-size=16384"
+          dir=$PWD
+          model_dir=$PWD/model-files
+          soc=${{ matrix.soc }}
+          model_name=${{ matrix.model_name }}
+
+          python3 ./scripts/pyannote/segmentation/show-onnx.py --filename $model_dir/encoder.onnx
+          python3 ./scripts/pyannote/segmentation/show-onnx.py --filename $model_dir/decoder.onnx
+
+          export PATH=${ANDROID_NDK_LATEST_HOME}:$PATH
+
+          echo "export to qnn"
+          echo "----------$model_name----------"
+
+          for m in encoder decoder; do
+            echo "Processing $m"
+            qnn-onnx-converter \
+              --input_network $model_dir/$m.onnx \
+              --output_path ./non_quant/$m.cpp \
+              --act_bitwidth 16 \
+              --bias_bitwidth 32 > ${m}-log-converter.t 2>&1
+
+            ls -lh non_quant
+
+            python3 ./scripts/qnn/generate_config.py  \
+                --soc $soc \
+                --graph-name $m \
+                --output-dir ./non_quant/my-config-$m \
+                --qnn-sdk-root $QNN_SDK_ROOT
+
+            ls -lh non_quant/my-config-$m
+
+            head -n100 ./non_quant/my-config-$m/*.json
+
+            python3 "${QNN_SDK_ROOT}/bin/x86_64-linux-clang/qnn-model-lib-generator" \
+                -c non_quant/$m.cpp \
+                -b non_quant/$m.bin \
+                -o non_quant/model_libs > ${m}-log-generator.txt 2>&1
+
+            ls -lh non_quant/model_libs
+            echo "---"
+            ls -lh non_quant/model_libs/x86_64-linux-clang
+            echo "---"
+            ls -lh non_quant/model_libs/aarch64-android
+
+
+            $QNN_SDK_ROOT/bin/x86_64-linux-clang/qnn-context-binary-generator \
+              --backend $QNN_SDK_ROOT/lib/x86_64-linux-clang/libQnnHtp.so \
+              --model ./non_quant/model_libs/x86_64-linux-clang/lib$m.so \
+              --output_dir ./non_quant/binary \
+              --binary_file $m \
+              --config_file ./non_quant/my-config-$m/htp_backend_extensions.json > ${m}-log-generator.txt 2>&1
+
+            ls -lh non_quant/binary/
+          done
+
+          readelf -lW non_quant/model_libs/*/lib*.so
+
+          echo "collect results"
+
+          d=sherpa-onnx-qnn-${{ matrix.soc }}-binary-whisper-${{ matrix.model_name }}
+          mkdir -p $d
+          mkdir -p $d/test_wavs
+          cp -v non_quant/binary/*.bin $d/
+          cp -v $model_dir/tokens.txt $d
+          cp -v $model_dir/*.wav $d/test_wavs
+
+          ls -lh $d
+          tar cjfv $d.tar.bz2 $d
+          ls -lh *.tar.bz2
+          rm -rf $d
+
+          mkdir -p binary
+          mv *.tar.bz2 ./binary/
+
+          for p in x86_64-linux-clang aarch64-android; do
+            if [[ $p == x86_64-linux-clang ]]; then
+              d=sherpa-onnx-qnn-whisper-${{ matrix.model_name }}-linux-x64
+            elif [[ $p == aarch64-android ]]; then
+              d=sherpa-onnx-qnn-whisper-${{ matrix.model_name }}-android-aarch64
+            else
+              echo "Unknown $p"
+              exit -1
+            fi
+
+            mkdir -p $d
+            mkdir -p $d/test_wavs
+
+            cp -v non_quant/model_libs/$p/lib*.so $d/
+            cp -v $model_dir/tokens.txt $d
+            cp -v $model_dir/*.wav $d/test_wavs
+
+            echo "target=$p" >> $d/info.txt
+
+            ls -lh $d
+            tar cjfv $d.tar.bz2 $d
+            ls -lh *.tar.bz2
+            rm -rf $d
+          done
+
+          echo "----show---"
+          ls -lh *.tar.bz2
+
+          mkdir -p so
+
+          mv *.tar.bz2 ./so
+
+      - name: Setup tmate session
+        if: false
+        # if: failure()
+        uses: mxschmitt/action-tmate@v3
+
+      - name: Show files
+        shell: bash
+        run: |
+          echo "---so---"
+          ls -lh so
+
+          echo "---binary---"
+          ls -lh binary
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.model_name }}-${{ matrix.soc }}json
+          path: ./non_quant/*.json
+
+      - name: Release
+        if: github.repository_owner == 'csukuangfj' && matrix.soc == 'SM8850' && matrix.model_name != 'medium-aishell'
+        uses: svenstaro/upload-release-action@v2
+        with:
+          file_glob: true
+          file: ./so/*.tar.bz2
+          overwrite: true
+          repo_name: k2-fsa/sherpa-onnx
+          repo_token: ${{ secrets.UPLOAD_GH_SHERPA_ONNX_TOKEN }}
+          tag: asr-models-qnn-2
+
+      - name: Release
+        if: github.repository_owner == 'csukuangfj'
+        uses: svenstaro/upload-release-action@v2
+        with:
+          file_glob: true
+          file: ./binary/*.tar.bz2
+          overwrite: true
+          repo_name: k2-fsa/sherpa-onnx
+          repo_token: ${{ secrets.UPLOAD_GH_SHERPA_ONNX_TOKEN }}
+          tag: asr-models-qnn-binary-2
+
+      - name: Release
+        if: github.repository_owner == 'k2-fsa' && matrix.soc == 'SM8850'
+        uses: svenstaro/upload-release-action@v2
+        with:
+          file_glob: true
+          file: ./so/*.tar.bz2
+          overwrite: true
+          tag: asr-models-qnn-2
+
+      - name: Release
+        if: github.repository_owner == 'k2-fsa'
+        uses: svenstaro/upload-release-action@v2
+        with:
+          file_glob: true
+          file: ./binary/*.tar.bz2
+          overwrite: true
+          tag: asr-models-qnn-binary-2

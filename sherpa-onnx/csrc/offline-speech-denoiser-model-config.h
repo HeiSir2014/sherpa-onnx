@@ -6,13 +6,17 @@
 
 #include <string>
 
+#include "sherpa-onnx/csrc/offline-speech-denoiser-dpdfnet-model-config.h"
 #include "sherpa-onnx/csrc/offline-speech-denoiser-gtcrn-model-config.h"
+#include "sherpa-onnx/csrc/offline-speech-denoiser-voxlock-model-config.h"
 #include "sherpa-onnx/csrc/parse-options.h"
 
 namespace sherpa_onnx {
 
 struct OfflineSpeechDenoiserModelConfig {
   OfflineSpeechDenoiserGtcrnModelConfig gtcrn;
+  OfflineSpeechDenoiserDpdfNetModelConfig dpdfnet;
+  OfflineSpeechDenoiserVoxLockModelConfig voxlock;
 
   int32_t num_threads = 1;
   bool debug = false;
@@ -21,9 +25,11 @@ struct OfflineSpeechDenoiserModelConfig {
   OfflineSpeechDenoiserModelConfig() = default;
 
   OfflineSpeechDenoiserModelConfig(
-      const OfflineSpeechDenoiserGtcrnModelConfig &gtcrn, int32_t num_threads,
-      bool debug, const std::string &provider)
+      const OfflineSpeechDenoiserGtcrnModelConfig &gtcrn,
+      const OfflineSpeechDenoiserDpdfNetModelConfig &dpdfnet,
+      int32_t num_threads, bool debug, const std::string &provider)
       : gtcrn(gtcrn),
+        dpdfnet(dpdfnet),
         num_threads(num_threads),
         debug(debug),
         provider(provider) {}

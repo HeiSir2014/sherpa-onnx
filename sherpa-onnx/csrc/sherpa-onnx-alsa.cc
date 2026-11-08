@@ -5,13 +5,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <algorithm>
-#include <cctype>  // std::tolower
 #include <cstdint>
 #include <string>
 #include <vector>
 
 #include "sherpa-onnx/csrc/alsa.h"
+#include "sherpa-onnx/csrc/macros.h"
 #include "sherpa-onnx/csrc/display.h"
 #include "sherpa-onnx/csrc/online-recognizer.h"
 #include "sherpa-onnx/csrc/parse-options.h"
@@ -69,7 +68,7 @@ as the device_name.
   if (po.NumArgs() != 1) {
     fprintf(stderr, "Please provide only 1 argument: the device name\n");
     po.PrintUsage();
-    exit(EXIT_FAILURE);
+    SHERPA_ONNX_EXIT(EXIT_FAILURE);
   }
 
   fprintf(stderr, "%s\n", config.ToString().c_str());
@@ -89,7 +88,7 @@ as the device_name.
   if (alsa.GetExpectedSampleRate() != expected_sample_rate) {
     fprintf(stderr, "sample rate: %d != %d\n", alsa.GetExpectedSampleRate(),
             expected_sample_rate);
-    exit(-1);
+    SHERPA_ONNX_EXIT(-1);
   }
 
   fprintf(stderr, "Started! Please speak\n");
@@ -133,10 +132,9 @@ as the device_name.
 
     if (!text.empty() && last_text != text) {
       last_text = text;
-
-      std::transform(text.begin(), text.end(), text.begin(),
-                     [](auto c) { return std::tolower(c); });
-
+      // Print raw model text (same as sherpa-onnx file decode). Do not force
+      // lowercase here; tokens.txt case must stay consistent across sources.
+      // See https://github.com/k2-fsa/sherpa-onnx/issues/3621
       display.Print(segment_index, text);
       fflush(stderr);
     }

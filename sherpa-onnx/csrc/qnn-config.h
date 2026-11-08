@@ -17,7 +17,10 @@ struct QnnConfig {
   std::string backend_lib;
 
   // If it exists, you need to also provide system_lib.
-  // In this case, the model lib, i.e., libmodel.so, is ignored
+  // In this case, the model lib, i.e., libmodel.so, is ignored.
+  //
+  // For models with multiple QNN components, e.g. paraformer or online
+  // transducer, you can provide multiple context binaries separated by commas.
   //
   // If it does not exist and if the user want to save the context binary,
   // it will save it to this path.
@@ -26,6 +29,12 @@ struct QnnConfig {
   // Required and used only when context_binary exists
   // Example value: /some/path/to/libQnnSystem.so
   std::string system_lib;
+
+  // If true, pin the Qualcomm HTP (NPU DSP) to its max clocks via DCVS v3 and
+  // RPC polling (enable only for latency-critical, autoregressive
+  // decoders where the default DCVS policy introduces per-step wake-up
+  // overhead).
+  bool htp_perf_mode = false;
 
   std::string ToString() const;
 

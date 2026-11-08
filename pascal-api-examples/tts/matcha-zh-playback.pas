@@ -50,10 +50,11 @@ var
   Param: TPaStreamParameters;
   Stream: PPaStream;
   Wave: TSherpaOnnxWave;
+  GenerationConfig: TSherpaOnnxGenerationConfig;
 
 function GenerateCallback(
       Samples: pcfloat; N: cint32;
-      Arg: Pointer): cint; cdecl;
+      Progress: cfloat; Arg: Pointer): cint; cdecl;
 begin
   EnterCriticalSection(CriticalSection);
   try
@@ -118,7 +119,6 @@ begin
   Config.Model.Matcha.Vocoder := './vocos-22khz-univ.onnx';
   Config.Model.Matcha.Lexicon := './matcha-icefall-zh-baker/lexicon.txt';
   Config.Model.Matcha.Tokens := './matcha-icefall-zh-baker/tokens.txt';
-  Config.Model.Matcha.DictDir := './matcha-icefall-zh-baker/dict';
   Config.Model.NumThreads := 1;
   Config.Model.Debug := False;
   Config.RuleFsts := './matcha-icefall-zh-baker/phone.fst,./matcha-icefall-zh-baker/date.fst,./matcha-icefall-zh-baker/number.fst';
@@ -209,8 +209,13 @@ begin
 
   Text := '某某银行的副行长和一些行政领导表示，他们去过长江和长白山; 经济不断增长。2024年12月31号，拨打110或者18920240511。123456块钱。';
 
-  Audio :=  Tts.Generate(Text, SpeakerId, Speed,
-    PSherpaOnnxGeneratedAudioCallbackWithArg(@GenerateCallback), nil);
+  GenerationConfig := Default(TSherpaOnnxGenerationConfig);
+  GenerationConfig.SilenceScale := 0.2;
+  GenerationConfig.Speed := Speed;
+  GenerationConfig.Sid := SpeakerId;
+
+  Audio :=  Tts.Generate(Text, GenerationConfig,
+    @GenerateCallback, nil);
   FinishedGeneration := True;
   SherpaOnnxWriteWave('./matcha-zh-playback.wav', Audio.Samples, Audio.SampleRate);
   WriteLn('Saved to ./matcha-zh-playback.wav');
@@ -238,4 +243,3 @@ begin
       Exit;
     end;
 end.
-

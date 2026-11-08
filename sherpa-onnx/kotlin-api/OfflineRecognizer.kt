@@ -12,12 +12,17 @@ data class OfflineRecognizerResult(
 
     // valid only for TDT models
     val durations: FloatArray,
+
+    // The decoded word IDs. Empty for greedy search decoding, non-empty when
+    // an HLG graph is used, i.e. when ctcFstDecoderConfig.graph is set.
+    val words: IntArray = IntArray(0),
 )
 
 data class OfflineTransducerModelConfig(
     var encoder: String = "",
     var decoder: String = "",
     var joiner: String = "",
+    var qnnConfig: QnnConfig = QnnConfig(),
 )
 
 data class OfflineParaformerModelConfig(
@@ -27,6 +32,7 @@ data class OfflineParaformerModelConfig(
 
 data class OfflineNemoEncDecCtcModelConfig(
     var model: String = "",
+    var qnnConfig: QnnConfig = QnnConfig(),
 )
 
 data class OfflineDolphinModelConfig(
@@ -70,6 +76,19 @@ data class OfflineFunAsrNanoModelConfig(
     var hotwords: String = "",
 )
 
+data class OfflineQwen3AsrModelConfig(
+    var convFrontend: String = "",
+    var encoder: String = "",
+    var decoder: String = "",
+    var tokenizer: String = "",
+    var maxTotalLen: Int = 512,
+    var maxNewTokens: Int = 128,
+    var temperature: Float = 1e-6f,
+    var topP: Float = 0.8f,
+    var seed: Int = 42,
+    var hotwords: String = "",
+)
+
 data class OfflineWhisperModelConfig(
     var encoder: String = "",
     var decoder: String = "",
@@ -78,6 +97,7 @@ data class OfflineWhisperModelConfig(
     var tailPaddings: Int = 1000, // Padding added at the end of the samples
     var enableTokenTimestamps: Boolean = false,
     var enableSegmentTimestamps: Boolean = false,
+    var qnnConfig: QnnConfig = QnnConfig(),
 )
 
 data class OfflineCanaryModelConfig(
@@ -86,6 +106,14 @@ data class OfflineCanaryModelConfig(
     var srcLang: String = "en",
     var tgtLang: String = "en",
     var usePnc: Boolean = true,
+)
+
+data class OfflineCohereTranscribeModelConfig(
+    var encoder: String = "",
+    var decoder: String = "",
+    var language: String = "",
+    var usePunct: Boolean = true,
+    var useItn: Boolean = true,
 )
 
 data class OfflineFireRedAsrModelConfig(
@@ -103,6 +131,7 @@ data class OfflineMoonshineModelConfig(
     var uncachedDecoder: String = "",
     var cachedDecoder: String = "",
     var mergedDecoder: String = "",
+    var qnnConfig: QnnConfig = QnnConfig(),
 )
 
 data class OfflineSenseVoiceModelConfig(
@@ -126,8 +155,11 @@ data class OfflineModelConfig(
     var omnilingual: OfflineOmnilingualAsrCtcModelConfig = OfflineOmnilingualAsrCtcModelConfig(),
     var medasr: OfflineMedAsrCtcModelConfig = OfflineMedAsrCtcModelConfig(),
     var funasrNano: OfflineFunAsrNanoModelConfig = OfflineFunAsrNanoModelConfig(),
+    var qwen3Asr: OfflineQwen3AsrModelConfig = OfflineQwen3AsrModelConfig(),
     var fireRedAsrCtc: OfflineFireRedAsrCtcModelConfig = OfflineFireRedAsrCtcModelConfig(),
     var canary: OfflineCanaryModelConfig = OfflineCanaryModelConfig(),
+    var cohereTranscribe: OfflineCohereTranscribeModelConfig =
+        OfflineCohereTranscribeModelConfig(),
     var teleSpeech: String = "",
     var numThreads: Int = 1,
     var debug: Boolean = false,
@@ -136,6 +168,11 @@ data class OfflineModelConfig(
     var tokens: String = "",
     var modelingUnit: String = "",
     var bpeVocab: String = "",
+)
+
+data class OfflineCtcFstDecoderConfig(
+    var graph: String = "",
+    var maxActive: Int = 3000,
 )
 
 data class OfflineRecognizerConfig(
@@ -150,6 +187,7 @@ data class OfflineRecognizerConfig(
     var ruleFsts: String = "",
     var ruleFars: String = "",
     var blankPenalty: Float = 0.0f,
+    var ctcFstDecoderConfig: OfflineCtcFstDecoderConfig = OfflineCtcFstDecoderConfig(),
 )
 
 class OfflineRecognizer(
@@ -163,6 +201,9 @@ class OfflineRecognizer(
             newFromAsset(assetManager, config)
         } else {
             newFromFile(config)
+        }
+        require(ptr != 0L) {
+            "Invalid OfflineRecognizerConfig: failed to create native OfflineRecognizer"
         }
     }
 
@@ -180,6 +221,11 @@ class OfflineRecognizer(
         return OfflineStream(p)
     }
 
+    fun createStream(hotwords: String): OfflineStream {
+        val p = createStreamWithHotwords(ptr, hotwords)
+        return OfflineStream(p)
+    }
+
     fun getResult(stream: OfflineStream): OfflineRecognizerResult {
         return getResult(stream.ptr)
     }
@@ -191,6 +237,8 @@ class OfflineRecognizer(
     private external fun delete(ptr: Long)
 
     private external fun createStream(ptr: Long): Long
+
+    private external fun createStreamWithHotwords(ptr: Long, hotwords: String): Long
 
     private external fun setConfig(ptr: Long, config: OfflineRecognizerConfig)
 
@@ -791,6 +839,7 @@ fun getOfflineModelConfig(type: Int): OfflineModelConfig? {
                     tokenizer = "$modelDir/Qwen3-0.6B",
                 ),
                 tokens = "",
+                numThreads=3,
             )
         }
 
@@ -944,6 +993,33 @@ fun getOfflineModelConfig(type: Int): OfflineModelConfig? {
                     mergedDecoder = "$modelDir/decoder_model_merged.ort",
                 ),
                 tokens = "$modelDir/tokens.txt",
+            )
+        }
+
+        61 -> {
+            val modelDir = "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25"
+            return OfflineModelConfig(
+                qwen3Asr = OfflineQwen3AsrModelConfig(
+                    convFrontend = "$modelDir/conv_frontend.onnx",
+                    encoder = "$modelDir/encoder.int8.onnx",
+                    decoder = "$modelDir/decoder.int8.onnx",
+                    tokenizer = "$modelDir/tokenizer",
+                ),
+                tokens = "",
+                numThreads=3,
+            )
+        }
+
+        62 -> {
+            val modelDir = "sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-non-streaming"
+            return OfflineModelConfig(
+                transducer = OfflineTransducerModelConfig(
+                    encoder = "$modelDir/encoder.int8.onnx",
+                    decoder = "$modelDir/decoder.int8.onnx",
+                    joiner = "$modelDir/joiner.int8.onnx",
+                ),
+                tokens = "$modelDir/tokens.txt",
+                modelType = "nemo_transducer",
             )
         }
 
@@ -1401,6 +1477,46 @@ fun getOfflineModelConfig(type: Int): OfflineModelConfig? {
                     ),
                 ),
                 tokens = "$modelDir/tokens.txt",
+                debug = true,
+            )
+        }
+
+        9026 -> {
+            val modelDir =
+                "sherpa-onnx-qnn-reazonspeech-zipformer-transducer-ja-5s-2024-08-01-android-aarch64"
+            return OfflineModelConfig(
+                provider = "qnn",
+                transducer = OfflineTransducerModelConfig(
+                    encoder = "$modelDir/libencoder.so",
+                    decoder = "$modelDir/libdecoder.so",
+                    joiner = "$modelDir/libjoiner.so",
+                    qnnConfig = QnnConfig(
+                        backendLib = "libQnnHtp.so",
+                        systemLib = "libQnnSystem.so",
+                        contextBinary = "$modelDir/encoder.bin,$modelDir/decoder.bin,$modelDir/joiner.bin",
+                    ),
+                ),
+                tokens = "$modelDir/tokens.txt",
+                modelType = "transducer",
+                debug = true,
+            )
+        }
+
+        9027 -> {
+            // for Xiaomi 17 Pro
+            val modelDir =
+                "sherpa-onnx-qnn-SM8850-binary-reazonspeech-zipformer-transducer-ja-5s-2024-08-01"
+            return OfflineModelConfig(
+                provider = "qnn",
+                transducer = OfflineTransducerModelConfig(
+                    qnnConfig = QnnConfig(
+                        backendLib = "libQnnHtp.so",
+                        systemLib = "libQnnSystem.so",
+                        contextBinary = "$modelDir/encoder.bin,$modelDir/decoder.bin,$modelDir/joiner.bin",
+                    ),
+                ),
+                tokens = "$modelDir/tokens.txt",
+                modelType = "transducer",
                 debug = true,
             )
         }

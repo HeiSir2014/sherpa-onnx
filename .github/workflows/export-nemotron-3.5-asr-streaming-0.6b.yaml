@@ -1,0 +1,226 @@
+name: export-nemotron-3-5-asr-streaming-06b
+
+on:
+  push:
+    branches:
+      - nemotron-3.5-qnn-2
+  workflow_dispatch:
+
+concurrency:
+  group: export-nemotron-3-5-asr-streaming-to-onnx-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  onnx:
+    if: github.repository_owner == 'k2-fsa' || github.repository_owner == 'csukuangfj'
+    name: Export onnx ${{ matrix.chunk_size_ms }}ms
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        chunk_size_ms: [80, 160, 320, 560, 1120]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install NeMo
+        shell: bash
+        run: |
+          # nemotron-3.5-asr-streaming-0.6b requires EncDecRNNTBPEModelWithPrompt,
+          # which is not in the stable nemo-toolkit release yet; the model card
+          # instructs installing NeMo from main.
+          BRANCH='main'
+          pip install Cython packaging
+          pip install "nemo_toolkit[asr] @ git+https://github.com/NVIDIA/NeMo.git@$BRANCH"
+          pip install onnxruntime ipython sentencepiece
+          pip install kaldi-native-fbank
+          pip install soundfile librosa
+
+      - name: Install sherpa-onnx for testing
+        shell: bash
+        run: |
+          pip install sherpa-onnx-bin
+          which sherpa-onnx
+
+          sherpa-onnx-version
+
+      - name: Export ${{ matrix.chunk_size_ms }}ms
+        shell: bash
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          cd scripts/nemo/nemotron-3.5-asr-streaming-0.6b
+
+          python3 ./export_onnx.py --chunk-size-ms ${{ matrix.chunk_size_ms }}
+
+          ls -lh
+          echo "---"
+
+          ls -lh */
+
+          echo "---"
+
+      - name: Test ${{ matrix.chunk_size_ms }}ms onnx models
+        shell: bash
+        run: |
+          pip install sherpa-onnx-bin
+          which sherpa-onnx
+
+          wget https://dldata-public.s3.us-east-2.amazonaws.com/2086-149220-0033.wav
+
+          src=scripts/nemo/nemotron-3.5-asr-streaming-0.6b
+          chunk=${{ matrix.chunk_size_ms }}
+
+          echo "test $chunk int8"
+
+          sherpa-onnx \
+            --encoder=$src/$chunk/encoder.int8.onnx \
+            --decoder=$src/$chunk/decoder.int8.onnx \
+            --joiner=$src/$chunk/joiner.int8.onnx \
+            --tokens=$src/tokens.txt \
+            ./2086-149220-0033.wav
+
+          echo "test $chunk float32"
+
+          sherpa-onnx \
+            --encoder=$src/$chunk/encoder.onnx \
+            --decoder=$src/$chunk/decoder.onnx \
+            --joiner=$src/$chunk/joiner.onnx \
+            --tokens=$src/tokens.txt \
+            ./2086-149220-0033.wav
+
+      - name: Collect ${{ matrix.chunk_size_ms }}ms results
+        shell: bash
+        run: |
+          src=scripts/nemo/nemotron-3.5-asr-streaming-0.6b
+          chunk=${{ matrix.chunk_size_ms }}
+
+          d=sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-${chunk}ms-2026-06-11
+          mkdir -p $d
+
+          cp -av $src/$chunk/encoder.onnx $d/
+          cp -av $src/$chunk/encoder.data $d/
+          cp -av $src/$chunk/decoder.onnx $d/
+          cp -av $src/$chunk/joiner.onnx $d/
+          cp -av $src/tokens.txt $d/
+
+          cat >$d/README.md <<EOF
+          # Introduction
+          This model is from https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b
+
+          The chunk size is ${chunk}ms for the exported ONNX model.
+
+          Use per-stream language strings such as "en", "ja", or "auto".
+          EOF
+
+          ls -lh $d
+
+          d=sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-${chunk}ms-int8-2026-06-11
+          mkdir -p $d
+
+          cp -av $src/${chunk}/encoder.int8.onnx $d/
+          cp -av $src/${chunk}/decoder.int8.onnx $d/
+          cp -av $src/${chunk}/joiner.int8.onnx $d/
+          cp -av $src/tokens.txt $d/
+          cat >$d/README.md <<EOF
+          # Introduction
+          This model is from https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b
+
+          The chunk size is ${chunk}ms for the exported ONNX model.
+
+          Use per-stream language strings such as "en", "ja", or "auto".
+          EOF
+
+          ls -lh $d
+
+      - name: Download test waves
+        shell: bash
+        run: |
+          mkdir test_wavs
+          pushd test_wavs
+
+          for lang in ar de es fr ja ko uk vi zh; do
+            wget https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/$lang.wav
+          done
+
+          popd
+
+          chunk=${{ matrix.chunk_size_ms }}
+          models=(
+            sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-${chunk}ms-int8-2026-06-11
+            sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-${chunk}ms-2026-06-11
+          )
+          for m in ${models[@]}; do
+            cp -av test_wavs $m
+            tar cjvf $m.tar.bz2 $m
+          done
+
+          ls -lh *.tar.bz2
+
+      - name: Release
+        if: github.repository_owner == 'csukuangfj'
+        uses: svenstaro/upload-release-action@v2
+        with:
+          file_glob: true
+          file: sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-*-int8-2026-06-11.tar.bz2
+          overwrite: true
+          repo_name: k2-fsa/sherpa-onnx
+          repo_token: ${{ secrets.UPLOAD_GH_SHERPA_ONNX_TOKEN }}
+          tag: asr-models
+
+      - name: Release
+        if: github.repository_owner == 'k2-fsa'
+        uses: svenstaro/upload-release-action@v2
+        with:
+          file_glob: true
+          file: sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-*-int8-2026-06-11.tar.bz2
+          overwrite: true
+          tag: asr-models
+
+      - name: Publish to huggingface
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        uses: nick-fields/retry@v3
+        with:
+          max_attempts: 20
+          timeout_seconds: 200
+          shell: bash
+          command: |
+            git config --global user.email "csukuangfj@gmail.com"
+            git config --global user.name "Fangjun Kuang"
+
+            chunk=${{ matrix.chunk_size_ms }}
+            models=(
+              sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-${chunk}ms-int8-2026-06-11
+              sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-${chunk}ms-2026-06-11
+            )
+
+            for m in ${models[@]}; do
+              if [ ! -d $m ]; then
+                echo "skip $m"
+                continue
+              fi
+
+              rm -rf huggingface
+              export GIT_LFS_SKIP_SMUDGE=1
+              export GIT_CLONE_PROTECTION_ACTIVE=false
+              git clone https://csukuangfj2:$HF_TOKEN@huggingface.co/csukuangfj2/$m huggingface
+              cp -av $m/* huggingface
+              cd huggingface
+              git lfs track "*.onnx"
+              git lfs track "*.data"
+              git lfs track "*.wav"
+              git status
+              git add .
+              git status
+              git commit -m "first commit"
+              git push https://csukuangfj2:$HF_TOKEN@huggingface.co/csukuangfj2/$m main
+              cd ..
+            done
+
+            rm -rf huggingface

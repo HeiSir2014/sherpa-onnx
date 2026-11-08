@@ -1,4 +1,4 @@
-export { listRawfileDir, readWave, readWaveFromBinary, } from "libsherpa_onnx.so";
+export { listRawfileDir, readWave, readWaveFromBinary, readWaveMultiChannel, writeWaveMultiChannel, } from "libsherpa_onnx.so";
 
 export { CircularBuffer, SileroVadConfig, TenVadConfig, SpeechSegment, Vad, VadConfig, } from './src/main/ets/components/Vad';
 
@@ -9,6 +9,12 @@ export { Samples,
   HomophoneReplacerConfig,
   OfflineCanaryModelConfig,
   OfflineDolphinModelConfig,
+  OfflineFireRedAsrCtcModelConfig,
+  OfflineFireRedAsrModelConfig,
+  OfflineFunASRNanoModelConfig,
+  OfflineQwen3AsrModelConfig,
+  OfflineMedAsrCtcModelConfig,
+  OfflineOmnilingualAsrCtcModelConfig,
   OfflineTransducerModelConfig,
   OfflineParaformerModelConfig,
   OfflineNemoEncDecCtcModelConfig,
@@ -20,6 +26,7 @@ export { Samples,
   OfflineZipformerCtcModelConfig,
   OfflineModelConfig,
   OfflineLMConfig,
+  OfflineCtcFstDecoderConfig,
   OfflineRecognizerConfig,
   OfflineRecognizerResult,
   OfflineRecognizer,
@@ -41,13 +48,28 @@ export { OnlineStream,
 export { OfflineTtsKittenModelConfig,
   OfflineTtsKokoroModelConfig,
   OfflineTtsMatchaModelConfig,
+  OfflineTtsPocketModelConfig,
+  OfflineTtsSupertonicModelConfig,
   OfflineTtsVitsModelConfig,
+  OfflineTtsZipvoiceModelConfig,
   OfflineTtsModelConfig,
   OfflineTtsConfig,
   OfflineTts,
   TtsOutput,
+  TtsGenerationConfig,
   TtsInput,
+  TtsInputWithConfig,
 } from './src/main/ets/components/NonStreamingTts';
+
+export { OfflinePunctuationModelConfig,
+  OfflinePunctuationConfig,
+  OfflinePunctuation,
+} from './src/main/ets/components/OfflinePunctuation';
+
+export { OnlinePunctuationModelConfig,
+  OnlinePunctuationConfig,
+  OnlinePunctuation,
+} from './src/main/ets/components/OnlinePunctuation';
 
 export { SpeakerEmbeddingExtractorConfig,
   SpeakerEmbeddingExtractor,
@@ -66,3 +88,12 @@ export { KeywordSpotterConfig,
   KeywordSpotterResult,
   KeywordSpotter,
 } from './src/main/ets/components/KeywordSpotting';
+
+export { OfflineSourceSeparationSpleeterModelConfig,
+  OfflineSourceSeparationUvrModelConfig,
+  OfflineSourceSeparationModelConfig,
+  OfflineSourceSeparationConfig,
+  SourceSeparationInput,
+  SourceSeparationOutput,
+  OfflineSourceSeparation,
+} from './src/main/ets/components/OfflineSourceSeparation';

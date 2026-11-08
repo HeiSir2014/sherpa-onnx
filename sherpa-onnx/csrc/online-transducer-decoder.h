@@ -36,8 +36,7 @@ struct OnlineTransducerDecoderResult {
   // used only in modified beam_search
   Hypotheses hyps;
 
-  OnlineTransducerDecoderResult()
-      : tokens{}, num_trailing_blanks(0), decoder_out{nullptr}, hyps{} {}
+  OnlineTransducerDecoderResult() : tokens{}, decoder_out{nullptr}, hyps{} {}
 
   OnlineTransducerDecoderResult(const OnlineTransducerDecoderResult &other);
 
@@ -99,7 +98,7 @@ class OnlineTransducerDecoder {
                       std::vector<OnlineTransducerDecoderResult> * /*result*/) {
     SHERPA_ONNX_LOGE(
         "This interface is for OnlineTransducerModifiedBeamSearchDecoder.");
-    exit(-1);
+    SHERPA_ONNX_EXIT(-1);
   }
 
   // used for endpointing. We need to keep decoder_out after reset

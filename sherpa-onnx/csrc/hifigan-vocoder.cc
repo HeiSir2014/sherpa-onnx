@@ -22,6 +22,7 @@
 #include "sherpa-onnx/csrc/macros.h"
 #include "sherpa-onnx/csrc/onnx-utils.h"
 #include "sherpa-onnx/csrc/session.h"
+#include "sherpa-onnx/csrc/text-utils.h"
 
 namespace sherpa_onnx {
 
@@ -32,8 +33,9 @@ class HifiganVocoder::Impl {
       : env_(ORT_LOGGING_LEVEL_ERROR),
         sess_opts_(GetSessionOptions(num_threads, provider)),
         allocator_{} {
-    auto buf = ReadFile(model);
-    Init(buf.data(), buf.size());
+    sess_ = std::make_unique<Ort::Session>(
+        env_, SHERPA_ONNX_TO_ORT_PATH(model), sess_opts_);
+    Init(nullptr, 0);
   }
 
   template <typename Manager>
@@ -63,17 +65,30 @@ class HifiganVocoder::Impl {
     return {p, p + total};
   }
 
+  int32_t SampleRate() const { return sample_rate_; }
+
  private:
   void Init(void *model_data, size_t model_data_length) {
-    sess_ = std::make_unique<Ort::Session>(env_, model_data, model_data_length,
-                                           sess_opts_);
+    if (model_data) {
+      sess_ = std::make_unique<Ort::Session>(env_, model_data, model_data_length,
+                                             sess_opts_);
+    } else if (!sess_) {
+      SHERPA_ONNX_LOGE(
+          "Please pass model data or initialize the session outside of this "
+          "function");
+      SHERPA_ONNX_EXIT(-1);
+    }
 
     GetInputNames(sess_.get(), &input_names_, &input_names_ptr_);
 
     GetOutputNames(sess_.get(), &output_names_, &output_names_ptr_);
+
+    Ort::ModelMetadata meta_data = sess_->GetModelMetadata();
+    Ort::AllocatorWithDefaultOptions allocator;
+    SHERPA_ONNX_READ_META_DATA_WITH_DEFAULT(sample_rate_, "sample_rate", 22050);
   }
 
- private:
+  int32_t sample_rate_ = 22050;
   Ort::Env env_;
   Ort::SessionOptions sess_opts_;
   Ort::AllocatorWithDefaultOptions allocator_;
@@ -102,6 +117,8 @@ HifiganVocoder::~HifiganVocoder() = default;
 std::vector<float> HifiganVocoder::Run(Ort::Value mel) const {
   return impl_->Run(std::move(mel));
 }
+
+int32_t HifiganVocoder::SampleRate() const { return impl_->SampleRate(); }
 
 #if __ANDROID_API__ >= 9
 template HifiganVocoder::HifiganVocoder(AAssetManager *mgr, int32_t num_threads,

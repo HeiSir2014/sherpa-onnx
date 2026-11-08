@@ -7,7 +7,7 @@ data class OfflineTtsVitsModelConfig(
     var model: String = "",
     var lexicon: String = "",
     var tokens: String = "",
-    var dataDir: String = "",
+    var dataDir: String = "",  // deprecated, ignored; use lexicon or phonemeCodepoints
     var dictDir: String = "", // unused
     var noiseScale: Float = 0.667f,
     var noiseScaleW: Float = 0.8f,
@@ -19,7 +19,7 @@ data class OfflineTtsMatchaModelConfig(
     var vocoder: String = "",
     var lexicon: String = "",
     var tokens: String = "",
-    var dataDir: String = "",
+    var dataDir: String = "",  // deprecated, ignored; use lexicon or phonemeCodepoints
     var dictDir: String = "", // unused
     var noiseScale: Float = 1.0f,
     var lengthScale: Float = 1.0f,
@@ -29,19 +29,33 @@ data class OfflineTtsKokoroModelConfig(
     var model: String = "",
     var voices: String = "",
     var tokens: String = "",
-    var dataDir: String = "",
+    var dataDir: String = "",  // deprecated, ignored; use lexicon or phonemeCodepoints
     var lexicon: String = "",
     var lang: String = "",
     var dictDir: String = "", // unused
     var lengthScale: Float = 1.0f,
 )
 
+data class OfflineTtsZipVoiceModelConfig(
+    var tokens: String = "",
+    var encoder: String = "",
+    var decoder: String = "",
+    var vocoder: String = "",
+    var dataDir: String = "",  // deprecated, ignored; use lexicon or phonemeCodepoints
+    var lexicon: String = "",
+    var featScale: Float = 0.1f,
+    var tShift: Float = 0.5f,
+    var targetRms: Float = 0.1f,
+    var guidanceScale: Float = 1.0f,
+)
+
 data class OfflineTtsKittenModelConfig(
     var model: String = "",
     var voices: String = "",
     var tokens: String = "",
-    var dataDir: String = "",
+    var dataDir: String = "",  // deprecated, ignored; use lexicon or phonemeCodepoints
     var lengthScale: Float = 1.0f,
+    var lexicon: String = "",
 )
 
 /**
@@ -82,6 +96,7 @@ data class OfflineTtsModelConfig(
     var vits: OfflineTtsVitsModelConfig = OfflineTtsVitsModelConfig(),
     var matcha: OfflineTtsMatchaModelConfig = OfflineTtsMatchaModelConfig(),
     var kokoro: OfflineTtsKokoroModelConfig = OfflineTtsKokoroModelConfig(),
+    var zipvoice: OfflineTtsZipVoiceModelConfig = OfflineTtsZipVoiceModelConfig(),
     var kitten: OfflineTtsKittenModelConfig = OfflineTtsKittenModelConfig(),
     var pocket: OfflineTtsPocketModelConfig = OfflineTtsPocketModelConfig(),
     var supertonic: OfflineTtsSupertonicModelConfig = OfflineTtsSupertonicModelConfig(),
@@ -121,7 +136,14 @@ data class GenerationConfig(
     var referenceSampleRate: Int = 0,
     var referenceText: String? = null,
     var numSteps: Int = 5,
-    var extra: Map<String, String>? = null
+    var extra: Map<String, String>? = null,
+    // Pre-phonemized input as Unicode codepoints. One inner array per
+    // sentence. When set, it is used in place of the text argument.
+    // Mutually exclusive with tokens.
+    var phonemeCodepoints: Array<IntArray>? = null,
+    // Pre-tokenized input, e.g. Chinese pinyin like "zhong1". One inner array
+    // per sentence. Mutually exclusive with phonemeCodepoints.
+    var tokens: Array<Array<String>>? = null
 )
 
 class OfflineTts(
@@ -136,11 +158,17 @@ class OfflineTts(
         } else {
             newFromFile(config)
         }
+        require(ptr != 0L) {
+            "Invalid OfflineTtsConfig: failed to create native OfflineTts"
+        }
     }
 
     fun sampleRate() = getSampleRate(ptr)
 
     fun numSpeakers() = getNumSpeakers(ptr)
+
+    // Language/voice of the model, e.g., "en-us". Empty if not available.
+    fun lang() = getLang(ptr)
 
     fun generate(
         text: String,
@@ -187,6 +215,9 @@ class OfflineTts(
             } else {
                 newFromFile(config)
             }
+            require(ptr != 0L) {
+                "Invalid OfflineTtsConfig: failed to create native OfflineTts"
+            }
         }
     }
 
@@ -218,6 +249,7 @@ class OfflineTts(
     private external fun delete(ptr: Long)
     private external fun getSampleRate(ptr: Long): Int
     private external fun getNumSpeakers(ptr: Long): Int
+    private external fun getLang(ptr: Long): String
 
     // The returned array has two entries:
     //  - the first entry is an 1-D float array containing audio samples.
@@ -258,17 +290,42 @@ class OfflineTts(
 // to download models
 fun getOfflineTtsConfig(
     modelDir: String,
-    modelName: String, // for VITS
-    acousticModelName: String, // for Matcha
-    vocoder: String, // for Matcha
-    voices: String, // for Kokoro or kitten
-    lexicon: String,
-    dataDir: String,
-    dictDir: String, // unused
-    ruleFsts: String,
-    ruleFars: String,
+    modelName: String = "", // for VITS
+    acousticModelName: String = "", // for Matcha
+    vocoder: String = "", // for Matcha
+    voices: String = "", // for Kokoro or kitten
+    lexicon: String = "",
+    dataDir: String = "", // deprecated, ignored; use lexicon or phonemeCodepoints
+    dictDir: String = "", // unused
+    ruleFsts: String = "",
+    ruleFars: String = "",
     numThreads: Int? = null,
-    isKitten: Boolean = false
+    isKitten: Boolean = false,
+    isSupertonic: Boolean = false,
+    durationPredictor: String = "", // for Supertonic
+    textEncoder: String = "", // for Supertonic
+    vectorEstimator: String = "", // for Supertonic
+    supertonicVocoder: String = "", // for Supertonic
+    ttsJson: String = "", // for Supertonic
+    unicodeIndexer: String = "", // for Supertonic
+    voiceStyle: String = "", // for Supertonic
+    isZipvoice: Boolean = false,
+    zipvoiceEncoder: String = "", // for ZipVoice
+    zipvoiceDecoder: String = "", // for ZipVoice
+    zipvoiceVocoder: String = "", // for ZipVoice
+    featScale: Float = 0.1f, // for ZipVoice
+    tShift: Float = 0.5f, // for ZipVoice
+    targetRms: Float = 0.1f, // for ZipVoice
+    guidanceScale: Float = 1.0f, // for ZipVoice
+    isPocket: Boolean = false,
+    lmFlow: String = "", // for Pocket
+    lmMain: String = "", // for Pocket
+    pocketEncoder: String = "", // for Pocket
+    pocketDecoder: String = "", // for Pocket
+    textConditioner: String = "", // for Pocket
+    vocabJson: String = "", // for Pocket
+    tokenScoresJson: String = "", // for Pocket
+    voiceEmbeddingCacheCapacity: Int = 50, // for Pocket
 ): OfflineTtsConfig {
     // For Matcha TTS, please set
     // acousticModelName, vocoder
@@ -282,6 +339,10 @@ fun getOfflineTtsConfig(
     // For VITS, please set
     // modelName
 
+    // For Supertonic TTS, please set
+    // isSupertonic, durationPredictor, textEncoder, vectorEstimator,
+    // supertonicVocoder, ttsJson, unicodeIndexer, voiceStyle
+
     val numberOfThreads = if (numThreads != null) {
         numThreads
     } else if (voices.isNotEmpty()) {
@@ -291,7 +352,9 @@ fun getOfflineTtsConfig(
         2
     }
 
-    if (modelName.isEmpty() && acousticModelName.isEmpty()) {
+    if (!isSupertonic && !isZipvoice && !isPocket && modelName.isEmpty() &&
+        acousticModelName.isEmpty()
+    ) {
         throw IllegalArgumentException("Please specify a TTS model")
     }
 
@@ -303,10 +366,28 @@ fun getOfflineTtsConfig(
         throw IllegalArgumentException("Please provide vocoder for Matcha TTS")
     }
 
-    val vits = if (modelName.isNotEmpty() && voices.isEmpty()) {
+    if (isZipvoice && zipvoiceEncoder.isEmpty()) {
+        throw IllegalArgumentException("Please provide encoder for ZipVoice")
+    }
+
+    if (isPocket && lmFlow.isEmpty()) {
+        throw IllegalArgumentException("Please provide lmFlow for Pocket TTS")
+    }
+
+    // Resolve the lexicon path once: "" stays "" (e.g. when the text is
+    // pre-phonemized via GenerationConfig.phonemeCodepoints and no lexicon is
+    // used), multi-lexicon strings ("a.txt,b.txt") are used as-is, and a bare
+    // filename is looked up inside modelDir.
+    val lexiconPath = when {
+        lexicon == "" -> lexicon
+        "," in lexicon -> lexicon
+        else -> "$modelDir/$lexicon"
+    }
+
+    val vits = if (modelName.isNotEmpty() && voices.isEmpty() && !isSupertonic) {
         OfflineTtsVitsModelConfig(
             model = "$modelDir/$modelName",
-            lexicon = "$modelDir/$lexicon",
+            lexicon = lexiconPath,
             tokens = "$modelDir/tokens.txt",
             dataDir = dataDir,
         )
@@ -318,7 +399,7 @@ fun getOfflineTtsConfig(
         OfflineTtsMatchaModelConfig(
             acousticModel = "$modelDir/$acousticModelName",
             vocoder = vocoder,
-            lexicon = "$modelDir/$lexicon",
+            lexicon = lexiconPath,
             tokens = "$modelDir/tokens.txt",
             dataDir = dataDir,
         )
@@ -326,17 +407,13 @@ fun getOfflineTtsConfig(
         OfflineTtsMatchaModelConfig()
     }
 
-    val kokoro = if (voices.isNotEmpty() && !isKitten) {
+    val kokoro = if (voices.isNotEmpty() && !isKitten && !isSupertonic) {
         OfflineTtsKokoroModelConfig(
             model = "$modelDir/$modelName",
             voices = "$modelDir/$voices",
             tokens = "$modelDir/tokens.txt",
             dataDir = dataDir,
-            lexicon = when {
-                lexicon == "" -> lexicon
-                "," in lexicon -> lexicon
-                else -> "$modelDir/$lexicon"
-            },
+            lexicon = lexiconPath,
         )
     } else {
         OfflineTtsKokoroModelConfig()
@@ -348,9 +425,57 @@ fun getOfflineTtsConfig(
             voices = "$modelDir/$voices",
             tokens = "$modelDir/tokens.txt",
             dataDir = dataDir,
+            lexicon = lexiconPath,
         )
     } else {
         OfflineTtsKittenModelConfig()
+    }
+
+    val supertonic = if (isSupertonic) {
+        OfflineTtsSupertonicModelConfig(
+            durationPredictor = "$modelDir/$durationPredictor",
+            textEncoder = "$modelDir/$textEncoder",
+            vectorEstimator = "$modelDir/$vectorEstimator",
+            vocoder = "$modelDir/$supertonicVocoder",
+            ttsJson = "$modelDir/$ttsJson",
+            unicodeIndexer = "$modelDir/$unicodeIndexer",
+            voiceStyle = "$modelDir/$voiceStyle",
+        )
+    } else {
+        OfflineTtsSupertonicModelConfig()
+    }
+
+    val zipvoice = if (isZipvoice) {
+        OfflineTtsZipVoiceModelConfig(
+            tokens = "$modelDir/tokens.txt",
+            encoder = "$modelDir/$zipvoiceEncoder",
+            decoder = "$modelDir/$zipvoiceDecoder",
+            // The vocoder ships separately from the model package (e.g.
+            // vocos_24khz.onnx), so it is used as given, like Matcha's.
+            vocoder = zipvoiceVocoder,
+            lexicon = lexiconPath,
+            featScale = featScale,
+            tShift = tShift,
+            targetRms = targetRms,
+            guidanceScale = guidanceScale,
+        )
+    } else {
+        OfflineTtsZipVoiceModelConfig()
+    }
+
+    val pocket = if (isPocket) {
+        OfflineTtsPocketModelConfig(
+            lmFlow = "$modelDir/$lmFlow",
+            lmMain = "$modelDir/$lmMain",
+            encoder = "$modelDir/$pocketEncoder",
+            decoder = "$modelDir/$pocketDecoder",
+            textConditioner = "$modelDir/$textConditioner",
+            vocabJson = "$modelDir/$vocabJson",
+            tokenScoresJson = "$modelDir/$tokenScoresJson",
+            voiceEmbeddingCacheCapacity = voiceEmbeddingCacheCapacity,
+        )
+    } else {
+        OfflineTtsPocketModelConfig()
     }
 
     return OfflineTtsConfig(
@@ -358,9 +483,12 @@ fun getOfflineTtsConfig(
             vits = vits,
             matcha = matcha,
             kokoro = kokoro,
+            zipvoice = zipvoice,
             kitten = kitten,
+            pocket = pocket,
+            supertonic = supertonic,
             numThreads = numberOfThreads,
-            debug = true,
+            debug = false,
             provider = "cpu",
         ),
         ruleFsts = ruleFsts,

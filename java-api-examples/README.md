@@ -2,7 +2,32 @@
 
 This directory contains examples for the JAVA API of sherpa-onnx.
 
+## Supported platforms
+
+| OS | Architecture | Status |
+|---|---|---|
+| Linux | x64 | ✅ |
+| Linux | ARM64 | ✅ |
+| macOS | x64 (Intel) | ✅ |
+| macOS | ARM64 (Apple Silicon) | ✅ |
+| Windows | x64 | ✅ |
+| Windows | ARM64 | ✅ |
+
 # Usage
+
+## Non-streaming speech enhancement
+
+```bash
+./run-non-streaming-speech-enhancement-gtcrn.sh
+./run-non-streaming-speech-enhancement-dpdfnet.sh
+
+./run-non-streaming-speech-enhancement-voxlock.sh
+./run-non-streaming-speech-enhancement-voxlock-with-voice-sample.sh
+```
+
+Use 16 kHz DPDFNet models such as
+`dpdfnet_baseline.onnx`, `dpdfnet2.onnx`, `dpdfnet4.onnx`, or `dpdfnet8.onnx` for
+downstream ASR and `dpdfnet2_48khz_hr.onnx` for 48 kHz enhancement output.
 
 ## Non-streaming speaker diarization
 
@@ -56,21 +81,22 @@ This directory contains examples for the JAVA API of sherpa-onnx.
 
 ```bash
 ./run-non-streaming-tts-coqui-de.sh
-./run-non-streaming-tts-kitten-en.sh
-./run-non-streaming-tts-kokoro-en.sh
-./run-non-streaming-tts-kokoro-zh-en.sh
-./run-non-streaming-tts-matcha-en.sh
-./run-non-streaming-tts-matcha-zh.sh
-./run-non-streaming-tts-piper-en-with-callback.sh
-./run-non-streaming-tts-piper-en.sh
-./run-non-streaming-tts-vits-zh.sh
+./run-non-streaming-tts-kitten-en-lexicon.sh
+./run-non-streaming-tts-kokoro-en-lexicon.sh
+./run-non-streaming-tts-kokoro-zh-en-lexicon.sh
+./run-non-streaming-tts-matcha-en-lexicon.sh
+./run-non-streaming-tts-matcha-zh-lexicon.sh
+./run-non-streaming-tts-piper-en-with-callback-lexicon.sh
+./run-non-streaming-tts-piper-en-lexicon.sh
+./run-non-streaming-tts-vits-zh-lexicon.sh
 ./run-pocket-tts.sh
+./run-zipvoice-tts-lexicon.sh
 ```
 
 ## Non-Streaming text-to-speech (Playback the audio as it is being generated)
 
 ```bash
-./run-non-streaming-tts-piper-en-with-callback.sh
+./run-non-streaming-tts-piper-en-with-callback-lexicon.sh
 ```
 
 ## Spoken language identification
@@ -128,8 +154,8 @@ The punctuation model supports both English and Chinese.
 ## VAD (Remove silence)
 
 ```bash
-./run-vad-remove-slience.sh
-./run-ten-vad-remove-slience.sh
+./run-vad-remove-silence.sh
+./run-ten-vad-remove-silence.sh
 ```
 
 ## VAD + Non-streaming Dolphin CTC for speech recognition

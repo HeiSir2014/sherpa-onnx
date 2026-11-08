@@ -7,30 +7,31 @@ use sherpa_onnx::{
     GenerationConfig, OfflineTts, OfflineTtsConfig, OfflineTtsSupertonicModelConfig,
 };
 use std::collections::HashMap;
+use std::time::Instant;
 
 fn main() {
     let config = OfflineTtsConfig {
         model: sherpa_onnx::OfflineTtsModelConfig {
             supertonic: OfflineTtsSupertonicModelConfig {
                 duration_predictor: Some(
-                    "./sherpa-onnx-supertonic-tts-int8-2026-03-06/duration_predictor.int8.onnx"
+                    "./sherpa-onnx-supertonic-3-tts-int8-2026-05-11/duration_predictor.int8.onnx"
                         .into(),
                 ),
                 text_encoder: Some(
-                    "./sherpa-onnx-supertonic-tts-int8-2026-03-06/text_encoder.int8.onnx".into(),
+                    "./sherpa-onnx-supertonic-3-tts-int8-2026-05-11/text_encoder.int8.onnx".into(),
                 ),
                 vector_estimator: Some(
-                    "./sherpa-onnx-supertonic-tts-int8-2026-03-06/vector_estimator.int8.onnx"
+                    "./sherpa-onnx-supertonic-3-tts-int8-2026-05-11/vector_estimator.int8.onnx"
                         .into(),
                 ),
                 vocoder: Some(
-                    "./sherpa-onnx-supertonic-tts-int8-2026-03-06/vocoder.int8.onnx".into(),
+                    "./sherpa-onnx-supertonic-3-tts-int8-2026-05-11/vocoder.int8.onnx".into(),
                 ),
-                tts_json: Some("./sherpa-onnx-supertonic-tts-int8-2026-03-06/tts.json".into()),
+                tts_json: Some("./sherpa-onnx-supertonic-3-tts-int8-2026-05-11/tts.json".into()),
                 unicode_indexer: Some(
-                    "./sherpa-onnx-supertonic-tts-int8-2026-03-06/unicode_indexer.bin".into(),
+                    "./sherpa-onnx-supertonic-3-tts-int8-2026-05-11/unicode_indexer.bin".into(),
                 ),
-                voice_style: Some("./sherpa-onnx-supertonic-tts-int8-2026-03-06/voice.bin".into()),
+                voice_style: Some("./sherpa-onnx-supertonic-3-tts-int8-2026-05-11/voice.bin".into()),
             },
             num_threads: 2,
             debug: false, // set to true to see verbose logs
@@ -53,11 +54,13 @@ fn main() {
 
     let gen_config = GenerationConfig {
         sid: 6,
-        num_steps: 5,
+        num_steps: 8,
         speed: 1.25,
         extra: Some(extra),
         ..Default::default()
     };
+
+    let start = Instant::now();
 
     let audio = tts
         .generate_with_config(
@@ -69,6 +72,18 @@ fn main() {
             }),
         )
         .expect("Generation failed");
+
+    let elapsed_seconds = start.elapsed().as_secs_f32();
+    let duration = audio.samples().len() as f32 / audio.sample_rate() as f32;
+    let rtf = elapsed_seconds / duration;
+
+    println!("Number of threads: {}", config.model.num_threads);
+    println!("Elapsed seconds: {:.3} s", elapsed_seconds);
+    println!("Audio duration: {:.3} s", duration);
+    println!(
+        "Real-time factor (RTF): {:.3}/{:.3} = {:.3}",
+        elapsed_seconds, duration, rtf
+    );
 
     let filename = "./generated-supertonic-en-rust.wav";
     if audio.save(filename) {

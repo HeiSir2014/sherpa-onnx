@@ -1,13 +1,60 @@
 include_directories(${PROJECT_SOURCE_DIR})
 
+add_executable(version-cxx-api ./version-cxx-api.cc)
+target_link_libraries(version-cxx-api sherpa-onnx-cxx-api)
+
 add_executable(streaming-zipformer-cxx-api ./streaming-zipformer-cxx-api.cc)
 target_link_libraries(streaming-zipformer-cxx-api sherpa-onnx-cxx-api)
+
+add_executable(streaming-nemotron-cxx-api ./streaming-nemotron-cxx-api.cc)
+target_link_libraries(streaming-nemotron-cxx-api sherpa-onnx-cxx-api)
 
 add_executable(streaming-zipformer-with-hr-cxx-api ./streaming-zipformer-with-hr-cxx-api.cc)
 target_link_libraries(streaming-zipformer-with-hr-cxx-api sherpa-onnx-cxx-api)
 
+add_executable(zipformer-ctc-hlg-cxx-api ./zipformer-ctc-hlg-cxx-api.cc)
+target_link_libraries(zipformer-ctc-hlg-cxx-api sherpa-onnx-cxx-api)
+
 add_executable(speech-enhancement-gtcrn-cxx-api ./speech-enhancement-gtcrn-cxx-api.cc)
 target_link_libraries(speech-enhancement-gtcrn-cxx-api sherpa-onnx-cxx-api)
+
+add_executable(source-separation-spleeter-cxx-api ./source-separation-spleeter-cxx-api.cc)
+target_link_libraries(source-separation-spleeter-cxx-api sherpa-onnx-cxx-api)
+
+add_executable(source-separation-uvr-cxx-api ./source-separation-uvr-cxx-api.cc)
+target_link_libraries(source-separation-uvr-cxx-api sherpa-onnx-cxx-api)
+
+add_executable(speech-enhancement-dpdfnet-cxx-api ./speech-enhancement-dpdfnet-cxx-api.cc)
+target_link_libraries(speech-enhancement-dpdfnet-cxx-api sherpa-onnx-cxx-api)
+
+add_executable(online-speech-enhancement-gtcrn-cxx-api
+               ./online-speech-enhancement-gtcrn-cxx-api.cc)
+target_link_libraries(online-speech-enhancement-gtcrn-cxx-api
+                      sherpa-onnx-cxx-api)
+
+add_executable(online-speech-enhancement-dpdfnet-cxx-api
+               ./online-speech-enhancement-dpdfnet-cxx-api.cc)
+target_link_libraries(online-speech-enhancement-dpdfnet-cxx-api
+                      sherpa-onnx-cxx-api)
+
+add_executable(speech-enhancement-voxlock-cxx-api
+               ./speech-enhancement-voxlock-cxx-api.cc)
+target_link_libraries(speech-enhancement-voxlock-cxx-api sherpa-onnx-cxx-api)
+
+add_executable(speech-enhancement-voxlock-with-voice-sample-cxx-api
+               ./speech-enhancement-voxlock-with-voice-sample-cxx-api.cc)
+target_link_libraries(speech-enhancement-voxlock-with-voice-sample-cxx-api
+                      sherpa-onnx-cxx-api)
+
+add_executable(online-speech-enhancement-voxlock-cxx-api
+               ./online-speech-enhancement-voxlock-cxx-api.cc)
+target_link_libraries(online-speech-enhancement-voxlock-cxx-api
+                      sherpa-onnx-cxx-api)
+
+add_executable(online-speech-enhancement-voxlock-with-voice-sample-cxx-api
+               ./online-speech-enhancement-voxlock-with-voice-sample-cxx-api.cc)
+target_link_libraries(online-speech-enhancement-voxlock-with-voice-sample-cxx-api
+                      sherpa-onnx-cxx-api)
 
 add_executable(kws-cxx-api ./kws-cxx-api.cc)
 target_link_libraries(kws-cxx-api sherpa-onnx-cxx-api)
@@ -53,6 +100,36 @@ target_link_libraries(medasr-ctc-cxx-api sherpa-onnx-cxx-api)
 
 add_executable(nemo-canary-cxx-api ./nemo-canary-cxx-api.cc)
 target_link_libraries(nemo-canary-cxx-api sherpa-onnx-cxx-api)
+
+add_executable(nemo-giga-am-v2-cxx-api ./nemo-giga-am-v2-cxx-api.cc)
+target_link_libraries(nemo-giga-am-v2-cxx-api sherpa-onnx-cxx-api)
+
+add_executable(nemo-ctc-cxx-api ./nemo-ctc-cxx-api.cc)
+target_link_libraries(nemo-ctc-cxx-api sherpa-onnx-cxx-api)
+
+add_executable(paraformer-cxx-api ./paraformer-cxx-api.cc)
+target_link_libraries(paraformer-cxx-api sherpa-onnx-cxx-api)
+
+add_executable(streaming-paraformer-cxx-api ./streaming-paraformer-cxx-api.cc)
+target_link_libraries(streaming-paraformer-cxx-api sherpa-onnx-cxx-api)
+
+add_executable(spoken-language-identification-cxx-api
+               ./spoken-language-identification-cxx-api.cc)
+target_link_libraries(spoken-language-identification-cxx-api sherpa-onnx-cxx-api)
+
+add_executable(speaker-identification-cxx-api
+               ./speaker-identification-cxx-api.cc)
+target_link_libraries(speaker-identification-cxx-api sherpa-onnx-cxx-api)
+
+add_executable(offline-speaker-diarization-cxx-api
+               ./offline-speaker-diarization-cxx-api.cc)
+target_link_libraries(offline-speaker-diarization-cxx-api sherpa-onnx-cxx-api)
+
+add_executable(cohere-transcribe-cxx-api ./cohere-transcribe-cxx-api.cc)
+target_link_libraries(cohere-transcribe-cxx-api sherpa-onnx-cxx-api)
+
+add_executable(offline-diacritization-cxx-api ./offline-diacritization-cxx-api.cc)
+target_link_libraries(offline-diacritization-cxx-api sherpa-onnx-cxx-api)
 
 add_executable(offline-punctuation-cxx-api ./offline-punctuation-cxx-api.cc)
 target_link_libraries(offline-punctuation-cxx-api sherpa-onnx-cxx-api)
@@ -173,6 +250,9 @@ target_link_libraries(vad-cxx-api sherpa-onnx-cxx-api)
 add_executable(funasr-nano-cxx-api ./funasr-nano-cxx-api.cc)
 target_link_libraries(funasr-nano-cxx-api sherpa-onnx-cxx-api)
 
+add_executable(qwen3-asr-cxx-api ./qwen3-asr-cxx-api.cc)
+target_link_libraries(qwen3-asr-cxx-api sherpa-onnx-cxx-api)
+
 if(SHERPA_ONNX_ENABLE_TTS)
   add_executable(matcha-tts-zh-cxx-api ./matcha-tts-zh-cxx-api.cc)
   target_link_libraries(matcha-tts-zh-cxx-api sherpa-onnx-cxx-api)
@@ -197,4 +277,10 @@ if(SHERPA_ONNX_ENABLE_TTS)
 
   add_executable(supertonic-tts-en-cxx-api ./supertonic-tts-en-cxx-api.cc)
   target_link_libraries(supertonic-tts-en-cxx-api sherpa-onnx-cxx-api)
+
+  add_executable(zipvoice-tts-zh-en-cxx-api ./zipvoice-tts-zh-en-cxx-api.cc)
+  target_link_libraries(zipvoice-tts-zh-en-cxx-api sherpa-onnx-cxx-api)
+
+  add_executable(offline-tts-piper-cxx-api ./offline-tts-piper-cxx-api.cc)
+  target_link_libraries(offline-tts-piper-cxx-api sherpa-onnx-cxx-api)
 endif()

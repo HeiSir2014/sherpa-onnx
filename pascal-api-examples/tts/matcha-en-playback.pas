@@ -50,10 +50,11 @@ var
   Param: TPaStreamParameters;
   Stream: PPaStream;
   Wave: TSherpaOnnxWave;
+  GenerationConfig: TSherpaOnnxGenerationConfig;
 
 function GenerateCallback(
       Samples: pcfloat; N: cint32;
-      Arg: Pointer): cint; cdecl;
+      Progress: cfloat; Arg: Pointer): cint; cdecl;
 begin
   EnterCriticalSection(CriticalSection);
   try
@@ -117,7 +118,7 @@ begin
   Config.Model.Matcha.AcousticModel := './matcha-icefall-en_US-ljspeech/model-steps-3.onnx';
   Config.Model.Matcha.Vocoder := './vocos-22khz-univ.onnx';
   Config.Model.Matcha.Tokens := './matcha-icefall-en_US-ljspeech/tokens.txt';
-  Config.Model.Matcha.DataDir := './matcha-icefall-en_US-ljspeech/espeak-ng-data';
+  Config.Model.Matcha.Lexicon := './lexicon-en-us.txt';
   Config.Model.NumThreads := 1;
   Config.Model.Debug := False;
   Config.MaxNumSentences := 1;
@@ -207,8 +208,13 @@ begin
 
   Text := 'Friends fell out often because life was changing so fast. The easiest thing in the world was to lose touch with someone.';
 
-  Audio :=  Tts.Generate(Text, SpeakerId, Speed,
-    PSherpaOnnxGeneratedAudioCallbackWithArg(@GenerateCallback), nil);
+  GenerationConfig := Default(TSherpaOnnxGenerationConfig);
+  GenerationConfig.SilenceScale := 0.2;
+  GenerationConfig.Speed := Speed;
+  GenerationConfig.Sid := SpeakerId;
+
+  Audio :=  Tts.Generate(Text, GenerationConfig,
+    @GenerateCallback, nil);
   FinishedGeneration := True;
   SherpaOnnxWriteWave('./matcha-en-playback.wav', Audio.Samples, Audio.SampleRate);
   WriteLn('Saved to ./matcha-en-playback.wav');
@@ -236,4 +242,3 @@ begin
       Exit;
     end;
 end.
-

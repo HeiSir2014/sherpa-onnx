@@ -7,11 +7,10 @@ import android.util.Log
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import com.github.csukuangfj.piper.phonemize.piperPhonemizeInitialize
+import com.github.csukuangfj.piper.phonemize.piperPhonemizeText
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.getOfflineTtsConfig
-import java.io.File
-import java.io.FileOutputStream
-import java.io.IOException
 
 const val MIN_TTS_SPEED = 0.1f
 const val MAX_TTS_SPEED = 5.0f
@@ -28,6 +27,9 @@ object TtsEngine {
 
     // if a model supports two languages, set also lang2
     var lang2: String? = null
+
+    // for Supertonic TTS: language code in ISO 639-1 format, e.g., "en", "zh", "ja"
+    var supertonicLang: String = "en"
 
 
     val speedState: MutableState<Float> = mutableFloatStateOf(1.0F)
@@ -53,9 +55,17 @@ object TtsEngine {
     private var ruleFsts: String? = null
     private var ruleFars: String? = null
     private var lexicon: String? = null
-    private var dataDir: String? = null
+    var usePhonemize = false
     private var assets: AssetManager? = null
     private var isKitten = false
+    var isSupertonic = false
+    private var durationPredictor: String? = null
+    private var textEncoder: String? = null
+    private var vectorEstimator: String? = null
+    private var supertonicVocoder: String? = null
+    private var ttsJson: String? = null
+    private var unicodeIndexer: String? = null
+    private var voiceStyle: String? = null
 
     init {
         // The purpose of such a design is to make the CI test easier
@@ -79,7 +89,6 @@ object TtsEngine {
         ruleFsts = null
         ruleFars = null
         lexicon = null
-        dataDir = null
         lang = null
         lang2 = null
 
@@ -97,7 +106,16 @@ object TtsEngine {
         // https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-amy-low.tar.bz2
         // modelDir = "vits-piper-en_US-amy-low"
         // modelName = "en_US-amy-low.onnx"
-        // dataDir = "vits-piper-en_US-amy-low/espeak-ng-data"
+        //
+        // Choose exactly one of the two text frontends below (not both):
+        //
+        // usePhonemize = true // option 1: phonemize the text with piper-phonemize; no extra files needed
+        // lexicon = "lexicon-en-us.txt" // option 2: lexicon file inside the model directory.
+        //   Download it from https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/lexicon-en-us.txt
+        //
+        // Neither option uses the espeak-ng-data directory shipped in the model
+        // package; delete it to make the APK smaller.
+        //
         // lang = "eng"
 
         // Example 3:
@@ -117,7 +135,7 @@ object TtsEngine {
 
         // Example 5:
         // https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-coqui-de-css10.tar.bz2
-        // This model does not need lexicon or dataDir
+        // This model does not need lexicon or piper-phonemize
         // modelDir = "vits-coqui-de-css10"
         // modelName = "model.onnx"
         // lang = "deu"
@@ -146,7 +164,7 @@ object TtsEngine {
         // modelDir = "matcha-icefall-en_US-ljspeech"
         // acousticModelName = "model-steps-3.onnx"
         // vocoder = "vocos-22khz-univ.onnx"
-        // dataDir = "matcha-icefall-en_US-ljspeech/espeak-ng-data"
+        // usePhonemize = true // or lexicon = "lexicon-en-us.txt", see Example 2
         // lang = "eng"
 
         // Example 9
@@ -154,7 +172,7 @@ object TtsEngine {
         // modelDir = "kokoro-en-v0_19"
         // modelName = "model.onnx"
         // voices = "voices.bin"
-        // dataDir = "kokoro-en-v0_19/espeak-ng-data"
+        // usePhonemize = true // or lexicon = "lexicon-en-us.txt", see Example 2
         // lang = "eng"
 
         // Example 10
@@ -162,7 +180,6 @@ object TtsEngine {
         // modelDir = "kokoro-multi-lang-v1_0"
         // modelName = "model.onnx"
         // voices = "voices.bin"
-        // dataDir = "kokoro-multi-lang-v1_0/espeak-ng-data"
         // lexicon = "kokoro-multi-lang-v1_0/lexicon-us-en.txt,kokoro-multi-lang-v1_0/lexicon-zh.txt"
         // lang = "eng"
         // lang2 = "zho"
@@ -176,7 +193,7 @@ object TtsEngine {
         // modelDir = "kitten-nano-en-v0_1-fp16"
         // modelName = "model.fp16.onnx"
         // voices = "voices.bin"
-        // dataDir = "kitten-nano-en-v0_1-fp16/espeak-ng-data"
+        // usePhonemize = true // or lexicon = "lexicon-en-us.txt", see Example 2
         // lang = "eng"
         // isKitten = true
 
@@ -186,9 +203,22 @@ object TtsEngine {
         // modelDir = "matcha-icefall-zh-en"
         // acousticModelName = "model-steps-3.onnx"
         // vocoder = "vocos-16khz-univ.onnx"
-        // dataDir = "matcha-icefall-zh-en/espeak-ng-data"
         // lexicon = "lexicon.txt"
         // lang = "zho"
+
+        // Example 13
+        // supertonic-3-tts (supports 31 languages, default: English)
+        // https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models
+        // modelDir = "sherpa-onnx-supertonic-3-tts-int8-2026-05-11"
+        // isSupertonic = true
+        // durationPredictor = "duration_predictor.int8.onnx"
+        // textEncoder = "text_encoder.int8.onnx"
+        // vectorEstimator = "vector_estimator.int8.onnx"
+        // supertonicVocoder = "vocoder.int8.onnx"
+        // ttsJson = "tts.json"
+        // unicodeIndexer = "unicode_indexer.bin"
+        // voiceStyle = "voice.bin"
+        // supertonicLang = "en"  // ISO 639-1: en, zh, ja, ko, fr, de, es, etc.
     }
 
     fun createTts(context: Context) {
@@ -201,9 +231,10 @@ object TtsEngine {
     private fun initTts(context: Context) {
         assets = context.assets
 
-        if (dataDir != null) {
-            val newDir = copyDataDir(context, dataDir!!)
-            dataDir = "$newDir/$dataDir"
+        if (usePhonemize) {
+            // The espeak-ng-data embedded in piper-phonemize only feeds the
+            // phonemizer; sherpa-onnx itself does not use espeak-ng anymore.
+            piperPhonemizeInitialize(context)
         }
 
         val config = getOfflineTtsConfig(
@@ -213,11 +244,19 @@ object TtsEngine {
             vocoder = vocoder ?: "",
             voices = voices ?: "",
             lexicon = lexicon ?: "",
-            dataDir = dataDir ?: "",
+            dataDir = "",
             dictDir = "",
             ruleFsts = ruleFsts ?: "",
             ruleFars = ruleFars ?: "",
             isKitten = isKitten,
+            isSupertonic = isSupertonic,
+            durationPredictor = durationPredictor ?: "",
+            textEncoder = textEncoder ?: "",
+            vectorEstimator = vectorEstimator ?: "",
+            supertonicVocoder = supertonicVocoder ?: "",
+            ttsJson = ttsJson ?: "",
+            unicodeIndexer = unicodeIndexer ?: "",
+            voiceStyle = voiceStyle ?: "",
         )
 
         speed = PreferenceHelper(context).getSpeed()
@@ -227,52 +266,19 @@ object TtsEngine {
     }
 
 
-    private fun copyDataDir(context: Context, dataDir: String): String {
-        Log.i(TAG, "data dir is $dataDir")
-        copyAssets(context, dataDir)
-
-        val newDataDir = context.getExternalFilesDir(null)!!.absolutePath
-        Log.i(TAG, "newDataDir: $newDataDir")
-        return newDataDir
-    }
-
-    private fun copyAssets(context: Context, path: String) {
-        val assets: Array<String>?
-        try {
-            assets = context.assets.list(path)
-            if (assets!!.isEmpty()) {
-                copyFile(context, path)
-            } else {
-                val fullPath = "${context.getExternalFilesDir(null)}/$path"
-                val dir = File(fullPath)
-                dir.mkdirs()
-                for (asset in assets.iterator()) {
-                    val p: String = if (path == "") "" else "$path/"
-                    copyAssets(context, p + asset)
-                }
-            }
-        } catch (ex: IOException) {
-            Log.e(TAG, "Failed to copy $path. $ex")
+    fun phonemize(text: String): Array<IntArray> {
+        var voice = tts?.lang() ?: ""
+        if (voice.isEmpty()) {
+            Log.w(TAG, "The model has no language information. Falling back to en-us.")
+            voice = "en-us"
         }
-    }
-
-    private fun copyFile(context: Context, filename: String) {
+        Log.i(TAG, "Phonemizer language: $voice")
+        val result = piperPhonemizeText(text, voice)
+            ?: throw RuntimeException("Failed to phonemize the text")
         try {
-            val istream = context.assets.open(filename)
-            val newFilename = context.getExternalFilesDir(null).toString() + "/" + filename
-            val ostream = FileOutputStream(newFilename)
-            // Log.i(TAG, "Copying $filename to $newFilename")
-            val buffer = ByteArray(1024)
-            var read = 0
-            while (read != -1) {
-                ostream.write(buffer, 0, read)
-                read = istream.read(buffer)
-            }
-            istream.close()
-            ostream.flush()
-            ostream.close()
-        } catch (ex: Exception) {
-            Log.e(TAG, "Failed to copy $filename, $ex")
+            return Array(result.numSentences) { i -> result.getPhonemes(i) }
+        } finally {
+            result.close()
         }
     }
 }

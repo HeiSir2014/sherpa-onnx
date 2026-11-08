@@ -76,7 +76,7 @@ tar xvf sherpa-onnx-funasr-nano-int8-2025-12-30.tar.bz2
 | `top_p` | float | 0.8 | Top-p (nucleus) sampling threshold |
 | `repetition_penalty` | float | 1.0 | Penalty for repeated tokens (1.0 = none) |
 | `no_repeat_ngram_size` | int32 | 0 | Block repeated n-grams (0 = disabled) |
-| `max_tokens_per_second` | float | 15 | Cap generated tokens at ~this rate × audio seconds + 16, so loops stop early; logs a warning when hit (0 = disabled; in the C API, 0 = default and < 0 = disabled) |
+| `max_tokens_per_second` | float | 15 | Cap generated tokens at ~this rate × audio seconds + 16, so loops stop early; logs a warning when hit (0 = disabled). C++/Python/CLI only; the C API keeps its upstream struct layout and uses the defaults |
 | `seed` | int32 | 42 | Random seed for reproducibility |
 
 ## Repetition Control

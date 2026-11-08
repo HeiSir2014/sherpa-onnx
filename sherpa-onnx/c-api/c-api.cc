@@ -628,19 +628,6 @@ static sherpa_onnx::OfflineRecognizerConfig GetOfflineRecognizerConfig(
       SHERPA_ONNX_OR(config->model_config.funasr_nano.top_p, 0.8f);
   recognizer_config.model_config.funasr_nano.seed =
       SHERPA_ONNX_OR(config->model_config.funasr_nano.seed, 42);
-  recognizer_config.model_config.funasr_nano.repetition_penalty =
-      SHERPA_ONNX_OR(config->model_config.funasr_nano.repetition_penalty, 1.0f);
-  recognizer_config.model_config.funasr_nano.no_repeat_ngram_size =
-      config->model_config.funasr_nano.no_repeat_ngram_size;
-  {
-    // 0 keeps the C++ default; a negative value disables the cap.
-    const float rate = config->model_config.funasr_nano.max_tokens_per_second;
-    if (rate < 0) {
-      recognizer_config.model_config.funasr_nano.max_tokens_per_second = 0;
-    } else if (rate > 0) {
-      recognizer_config.model_config.funasr_nano.max_tokens_per_second = rate;
-    }
-  }
 
   recognizer_config.model_config.fire_red_asr_ctc.model =
       SHERPA_ONNX_OR(config->model_config.fire_red_asr_ctc.model, "");

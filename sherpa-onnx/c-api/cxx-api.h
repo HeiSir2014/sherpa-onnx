@@ -592,12 +592,6 @@ struct OfflineFunASRNanoModelConfig {
   bool itn = true;
   /** Optional hotwords string. */
   std::string hotwords;
-  /** Repetition penalty; 1.0 disables it. Enable only to stop looping. */
-  float repetition_penalty = 1.0f;
-  /** Block repeated n-grams of this size; 0 disables it. */
-  int32_t no_repeat_ngram_size = 0;
-  /** Max generated tokens per second of audio; 0 disables the cap. */
-  float max_tokens_per_second = 15.0f;
 };
 
 /** @brief Offline Qwen3-ASR model configuration. */

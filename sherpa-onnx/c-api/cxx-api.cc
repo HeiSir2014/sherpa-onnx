@@ -356,16 +356,6 @@ static SherpaOnnxOfflineRecognizerConfig Convert(
   c.model_config.funasr_nano.itn = config.model_config.funasr_nano.itn ? 1 : 0;
   c.model_config.funasr_nano.hotwords =
       config.model_config.funasr_nano.hotwords.c_str();
-  c.model_config.funasr_nano.repetition_penalty =
-      config.model_config.funasr_nano.repetition_penalty;
-  c.model_config.funasr_nano.no_repeat_ngram_size =
-      config.model_config.funasr_nano.no_repeat_ngram_size;
-  // In the C API, 0 means "use the default" and a negative value disables
-  // the cap; here 0 disables it, as in the C++ config.
-  c.model_config.funasr_nano.max_tokens_per_second =
-      config.model_config.funasr_nano.max_tokens_per_second > 0
-          ? config.model_config.funasr_nano.max_tokens_per_second
-          : -1.0f;
 
   c.model_config.qwen3_asr.conv_frontend =
       config.model_config.qwen3_asr.conv_frontend.c_str();

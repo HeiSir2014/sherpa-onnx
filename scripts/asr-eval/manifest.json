@@ -1,0 +1,92 @@
+[
+  {
+    "name": "meeting-roundtable-yuanzhuopai",
+    "scenario": "meeting",
+    "id": "cguD1ryqDWU",
+    "start": 600,
+    "duration": 480,
+    "sub_lang": "zh-CN",
+    "note": "圆桌派 S8E01: 4-speaker round-table, Youku official channel"
+  },
+  {
+    "name": "meeting-roundtable-xunjie",
+    "scenario": "meeting",
+    "id": "iPOMZ3sOwpE",
+    "start": 900,
+    "duration": 480,
+    "sub_lang": "zh-CN",
+    "note": "圆桌派 S7E9: 李玫瑾/周轶君/马未都, female voices and Beijing accent"
+  },
+  {
+    "name": "meeting-podcast-caikangyong",
+    "scenario": "meeting",
+    "id": "pDxi9MljStw",
+    "start": 900,
+    "duration": 480,
+    "sub_lang": "zh-TW",
+    "note": "Drinking Library EP103 with 蔡康永: multi-speaker, Taiwanese accent"
+  },
+  {
+    "name": "meeting-interview-rising",
+    "scenario": "meeting",
+    "id": "EoyaiwVEw4k",
+    "start": 900,
+    "duration": 480,
+    "sub_lang": "zh-Hans",
+    "note": "Rising Podcast: two-person interview"
+  },
+  {
+    "name": "meeting-talk-yike",
+    "scenario": "meeting",
+    "id": "K2vBHUUqWoI",
+    "start": 120,
+    "duration": 480,
+    "sub_lang": "zh-Hant",
+    "note": "一刻talks 蔡康永: presentation-style talk with audience"
+  },
+  {
+    "name": "film-drama-cuihuoniandai",
+    "scenario": "film",
+    "id": "_WYK016EUoc",
+    "start": 300,
+    "duration": 480,
+    "sub_lang": "zh-Hans",
+    "note": "淬火年代 EP01: TV drama with score/effects, 正午阳光 official channel"
+  },
+  {
+    "name": "film-costume-zhuyu",
+    "scenario": "film",
+    "id": "Z0gEjddn8p4",
+    "start": 600,
+    "duration": 480,
+    "sub_lang": "zh-CN",
+    "note": "逐玉 EP01: costume drama, semi-classical dialogue, iQIYI official"
+  },
+  {
+    "name": "film-scifi-santi",
+    "scenario": "film",
+    "id": "3-UO8jbrIoM",
+    "start": 600,
+    "duration": 480,
+    "sub_lang": "zh",
+    "note": "三体 EP01: sci-fi drama, heavy effects, Tencent Video official"
+  },
+  {
+    "name": "film-action-nuhuo",
+    "scenario": "film",
+    "id": "q27grfxz1UA",
+    "start": 2400,
+    "duration": 480,
+    "sub_lang": "zh-CN",
+    "note": "怒火十二小时: action movie (gunfire, sirens), Youku Movie official. Starts at 2400 s: the 1200 s window had foreign-language dialogue with translated subtitles."
+  },
+  {
+    "name": "film-comedy-jiongba",
+    "scenario": "film",
+    "id": "_Np95HVeooE",
+    "start": 900,
+    "duration": 480,
+    "sub_lang": "zh",
+    "note": "囧爸喜事: comedy movie, iQIYI Movie official"
+  }
+]

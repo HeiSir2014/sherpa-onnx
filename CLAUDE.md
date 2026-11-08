@@ -122,7 +122,7 @@ cmake --build . --config Release -j 8
 ```
 
 ### Run Examples
-After building, executables are in `build/bin/` (Linux/macOS) or `build/bin/Release/` (Windows):
+After building, executables are in `build/bin/` (Linux/macOS), `build-ninja\bin\` (Windows, Ninja script) or `build/bin/Release/` (Windows, VS generator):
 ```bash
 # Example: Run SenseVoice ASR
 ./bin/sense-voice-cxx-api
@@ -166,17 +166,41 @@ error LNK2019: unresolved external symbol __std_find_first_of_trivial_pos_2
 cmake -G "Visual Studio 17 2022" -A x64 -DBUILD_SHARED_LIBS=ON ..
 ```
 
-### ccache for Windows MSVC Builds
-ccache is automatically enabled if found. Install ccache to `D:\soft\ccache` or set `CCACHE_DIR` environment variable.
+### Windows: build with Ninja (default for day-to-day work)
 
-Reference: https://github.com/ccache/ccache/wiki/MS-Visual-Studio
-
-Build with Visual Studio generator:
+Use the Ninja script. It finds Visual Studio via `vswhere`, enters the x64
+developer environment, uses VS's bundled Ninja (not `depot_tools`' wrapper on
+PATH), and builds into `build-ninja\` with `BUILD_SHARED_LIBS=ON`:
 ```bash
-mkdir build && cd build
-cmake -G "Visual Studio 17 2022" -A x64 ..
-cmake --build . --config Release -j 8
+build-windows-ninja.bat                                  # configure + build
+build-windows-ninja.bat -DSHERPA_ONNX_ENABLE_TESTS=ON    # extra CMake args
 ```
+From Git Bash call it as `cmd.exe //c "D:\\project\\sherpa-onnx\\build-windows-ninja.bat ..."`.
+Executables are in `build-ninja\bin\`; run tests with `ctest --test-dir build-ninja`.
+All tests pass on Windows except `lfr-test`, whose death tests do not capture
+the expected stderr message under MSVC.
+
+The onnxruntime DLLs must sit next to the executables. Otherwise Windows loads
+the older `C:\Windows\System32\onnxruntime.dll` (1.17) that ships with the OS,
+and every program crashes with access violations (0xc0000005).
+`cmake/onnxruntime.cmake` copies the DLLs to `bin\` for single-config
+generators such as Ninja.
+
+ccache is enabled automatically if found (`D:\soft\ccache`, or set `CCACHE_DIR`).
+With Ninja it is used as `CMAKE_<LANG>_COMPILER_LAUNCHER`, and header
+dependencies come from the compiler (`/showIncludes`), so incremental builds
+are exact.
+
+### Windows: Visual Studio generator (IDE only)
+
+`build\` uses the Visual Studio generator. With ccache, CMakeLists.txt copies
+ccache as `cl.exe` and enables MSBuild `UseMultiToolTask`. **MultiToolTask's
+incremental tracking can miss header changes**
+([msbuild#15229](https://github.com/dotnet/msbuild/issues/15229), not planned to
+be fixed). In this repo that once left stale `.obj` files after a struct
+layout change, and the binaries segfaulted. If you build with the VS generator,
+use `cmake --build build --config Release --clean-first` after editing headers
+(ccache keeps this fast).
 
 Verify ccache is working:
 ```bash

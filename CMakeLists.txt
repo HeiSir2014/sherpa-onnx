@@ -53,18 +53,36 @@ if(MSVC)
 
   if(CCACHE_PROGRAM)
     message(STATUS "Found ccache: ${CCACHE_PROGRAM}")
-    file(COPY_FILE
-      ${CCACHE_PROGRAM} ${CMAKE_BINARY_DIR}/cl.exe
-      ONLY_IF_DIFFERENT)
 
-    # Visual Studio defaults to /Zi which is incompatible with ccache, use /Z7 instead
+    # MSVC defaults to /Zi which is incompatible with ccache, use /Z7 instead
     set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>")
 
-    set(CMAKE_VS_GLOBALS
-      "CLToolExe=cl.exe"
-      "CLToolPath=${CMAKE_BINARY_DIR}"
-      "UseMultiToolTask=true"
-    )
+    if(CMAKE_GENERATOR MATCHES "Visual Studio")
+      # MSBuild cannot use a compiler launcher, so ccache masquerades as
+      # cl.exe and MultiToolTask provides parallelism. MultiToolTask's
+      # incremental tracking can leave stale objects after a header change
+      # (see https://github.com/dotnet/msbuild/issues/15229); a struct layout
+      # change then links mismatched objects and crashes. Prefer Ninja for
+      # day-to-day builds (build-windows-ninja.bat).
+      file(COPY_FILE
+        ${CCACHE_PROGRAM} ${CMAKE_BINARY_DIR}/cl.exe
+        ONLY_IF_DIFFERENT)
+      set(CMAKE_VS_GLOBALS
+        "CLToolExe=cl.exe"
+        "CLToolPath=${CMAKE_BINARY_DIR}"
+        "UseMultiToolTask=true"
+      )
+      message(WARNING
+        "ccache with the Visual Studio generator relies on MSBuild "
+        "MultiToolTask, whose incremental builds can miss header changes. "
+        "After editing headers, build with --clean-first, or use the Ninja "
+        "generator (build-windows-ninja.bat).")
+    else()
+      # Ninja/Makefiles: ccache as a compiler launcher. Header dependencies
+      # come from the compiler's /showIncludes output and are exact.
+      set(CMAKE_C_COMPILER_LAUNCHER ${CCACHE_PROGRAM})
+      set(CMAKE_CXX_COMPILER_LAUNCHER ${CCACHE_PROGRAM})
+    endif()
     message(STATUS "ccache enabled for MSVC builds")
   endif()
 endif()

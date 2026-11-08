@@ -27,6 +27,7 @@
 
 #include "onnxruntime_cxx_api.h"  // NOLINT
 #include "sherpa-onnx/csrc/macros.h"
+#include "sherpa-onnx/csrc/offline-tts-qwen3-stream-stitcher.h"
 
 namespace sherpa_onnx {
 
@@ -166,9 +167,9 @@ GeneratedAudio OfflineTtsQwen3Impl::Generate(
   const int32_t kSamplesPerFrame = 1920;
   const int32_t crossfade_samples =
       (streaming && has_stream_decoder) ? overlap_frames * kSamplesPerFrame : 0;
-  // Holds the last crossfade_samples from the previous streaming chunk so
-  // they can be blended with the start of the next chunk (overlap-add).
-  std::vector<float> held_tail;
+  // Joins per-chunk decoder output: crossfades each chunk's re-decoded
+  // left context with the held end of the previous chunk (same time span).
+  Qwen3StreamStitcher stitcher(crossfade_samples);
 
   auto t_start = std::chrono::steady_clock::now();
 
@@ -299,7 +300,6 @@ GeneratedAudio OfflineTtsQwen3Impl::Generate(
   std::future<std::vector<float>> pending_future;
   float pending_progress = 0.0f;
   int32_t pending_ctx_size = 0;
-  std::vector<float> pending_prev_held_tail;
   // Accumulates all audio delivered via callback; used as return value to
   // avoid a redundant full re-decode at the end.
   std::vector<float> accumulated_audio;
@@ -310,40 +310,15 @@ GeneratedAudio OfflineTtsQwen3Impl::Generate(
     return callback(s, n, p) != 0;
   };
 
-  // Wait for the pending async decode, apply crossfade, and deliver via
-  // callback.  Returns false if the callback requested stop.
+  // Wait for the pending async decode, stitch it onto the stream, and
+  // deliver via callback.  Returns false if the callback requested stop.
   auto flush_pending = [&]() -> bool {
     if (!pending_future.valid()) return true;
     auto raw = pending_future.get();
     pending_future = {};
-    const int32_t ctx_audio = pending_ctx_size * kSamplesPerFrame;
-    std::vector<float> samples;
-    if (ctx_audio > 0 && ctx_audio < static_cast<int32_t>(raw.size())) {
-      samples.assign(raw.begin() + ctx_audio, raw.end());
-    } else {
-      samples = std::move(raw);
-    }
-    if (!pending_prev_held_tail.empty() && crossfade_samples > 0) {
-      const int32_t cf =
-          std::min(crossfade_samples,
-                   static_cast<int32_t>(std::min(pending_prev_held_tail.size(),
-                                                 samples.size())));
-      for (int32_t i = 0; i < cf; ++i) {
-        const float t = static_cast<float>(i + 1) / (cf + 1);
-        samples[i] = pending_prev_held_tail[i] * (1.0f - t) + samples[i] * t;
-      }
-    }
-    if (crossfade_samples > 0 &&
-        static_cast<int32_t>(samples.size()) > crossfade_samples) {
-      held_tail.assign(samples.end() - crossfade_samples, samples.end());
-      return deliver(samples.data(),
-                     static_cast<int32_t>(samples.size()) - crossfade_samples,
-                     pending_progress);
-    } else {
-      held_tail.clear();
-      return deliver(samples.data(), static_cast<int32_t>(samples.size()),
-                     pending_progress);
-    }
+    auto samples = stitcher.Push(raw, pending_ctx_size * kSamplesPerFrame);
+    return deliver(samples.data(), static_cast<int32_t>(samples.size()),
+                   pending_progress);
   };
 
   auto t_gen_start = std::chrono::steady_clock::now();
@@ -497,8 +472,7 @@ GeneratedAudio OfflineTtsQwen3Impl::Generate(
             context_codes.assign(all_codes.end() - keep, all_codes.end());
           }
 
-          // Snapshot held_tail and metadata for when this future resolves.
-          pending_prev_held_tail = held_tail;
+          // Metadata for when this future resolves.
           pending_progress = progress;
           pending_ctx_size = ctx_size;
 
@@ -556,19 +530,31 @@ GeneratedAudio OfflineTtsQwen3Impl::Generate(
   const int32_t remaining =
       static_cast<int32_t>(all_codes.size()) - delivered_frames;
 
-  if (!streaming || has_stream_decoder) {
-    // Batch mode or stream-decoder mode: decode the tail (or all for batch).
-    if (remaining > 0) {
-      std::vector<std::vector<int64_t>> tail(
-          all_codes.begin() + delivered_frames, all_codes.end());
-      // Use the fast stream decoder for the tail when available (same quality,
-      // much faster than the fixed trace_T=1024 batch decoder).
-      audio.samples = DecodeFrames(tail, /*use_stream=*/has_stream_decoder);
+  // Mode A output: the stitched tail (decoded below) plus the held samples.
+  std::vector<float> mode_a_rest;
+  if (streaming && has_stream_decoder) {
+    // Mode A: decode the tail (< chunk_frames frames) with the same left
+    // context as the chunks, so it joins them seamlessly. Skip it entirely
+    // once the callback has asked to stop.
+    if (!stop_requested) {
+      if (remaining > 0) {
+        const int32_t ctx_size =
+            context_frames > 0 ? std::min(context_frames, delivered_frames)
+                               : 0;
+        std::vector<std::vector<int64_t>> tail(
+            all_codes.end() - remaining - ctx_size, all_codes.end());
+        mode_a_rest = stitcher.Push(DecodeFrames(tail, /*use_stream=*/true),
+                                    ctx_size * kSamplesPerFrame);
+      }
+      auto held = stitcher.Flush();
+      mode_a_rest.insert(mode_a_rest.end(), held.begin(), held.end());
     }
-  } else {
-    // Fake-streaming mode (streaming but no stream decoder): decode all at
-    // once.
-    audio.samples = DecodeFrames(all_codes, /*use_stream=*/false);
+  } else if (remaining > 0) {
+    // Batch mode, or fake streaming (no stream decoder): decode all frames
+    // once. Batch mode uses the fast stream decoder when available (same
+    // quality, much faster than the fixed trace_T=1024 batch decoder).
+    audio.samples = DecodeFrames(
+        all_codes, /*use_stream=*/!streaming && has_stream_decoder);
   }
   auto t_decode_end = std::chrono::steady_clock::now();
 
@@ -576,61 +562,37 @@ GeneratedAudio OfflineTtsQwen3Impl::Generate(
     const float decode_ms =
         std::chrono::duration<float, std::milli>(t_decode_end - t_decode_start)
             .count();
+    const int32_t decoded_samples =
+        static_cast<int32_t>(mode_a_rest.size() + audio.samples.size());
     SHERPA_ONNX_LOGE("decode: %.0f ms, %d frames, %d samples", decode_ms,
-                     remaining, (int)audio.samples.size());
+                     remaining, decoded_samples);
   }
 
   // ------------------------------------------------------------------
-  // Step 6: Deliver audio via callback.
+  // Step 6: Deliver audio via callback. Never call the callback again after
+  // it has returned 0.
   // ------------------------------------------------------------------
-  if (callback) {
-    if (streaming && !has_stream_decoder) {
-      // Mode B: deliver all decoded audio in chunk_frames-sized pieces.
-      const int32_t total_s = static_cast<int32_t>(audio.samples.size());
-      const int32_t chunk_s = chunk_frames * kSamplesPerFrame;
-      for (int32_t off = 0; off < total_s && !stop_requested; off += chunk_s) {
-        const int32_t n = std::min(chunk_s, total_s - off);
-        const float prog = static_cast<float>(off + n) / total_s;
-        if (callback(audio.samples.data() + off, n, prog) == 0)
-          stop_requested = true;
-      }
-    } else if (!audio.samples.empty() || !held_tail.empty()) {
-      // Mode A (stream decoder tail) or batch mode: deliver with crossfade.
-      if (!held_tail.empty()) {
-        if (!audio.samples.empty()) {
-          // Blend held_tail with start of tail audio
-          const int32_t cf = std::min(
-              crossfade_samples, static_cast<int32_t>(std::min(
-                                     held_tail.size(), audio.samples.size())));
-          for (int32_t i = 0; i < cf; ++i) {
-            const float t = static_cast<float>(i + 1) / (cf + 1);
-            audio.samples[i] = held_tail[i] * (1.0f - t) + audio.samples[i] * t;
-          }
-          deliver(audio.samples.data(), cf, 1.0f);
-          if (static_cast<int32_t>(audio.samples.size()) > cf)
-            deliver(audio.samples.data() + cf,
-                    static_cast<int32_t>(audio.samples.size()) - cf, 1.0f);
-        } else {
-          deliver(held_tail.data(), static_cast<int32_t>(held_tail.size()),
-                  1.0f);
-        }
-        held_tail.clear();
-      } else if (!audio.samples.empty()) {
-        deliver(audio.samples.data(),
-                static_cast<int32_t>(audio.samples.size()), 1.0f);
-      }
+  if (streaming && has_stream_decoder) {
+    // Mode A: the result is exactly the audio delivered via the callback.
+    if (!mode_a_rest.empty()) {
+      deliver(mode_a_rest.data(), static_cast<int32_t>(mode_a_rest.size()),
+              1.0f);
     }
-  }
-
-  // Return value: for stream-decoder mode, use the audio already delivered via
-  // callback (no extra decode needed).  For fake-streaming / batch, use
-  // audio.samples as set by Step 5.
-  if (streaming && has_stream_decoder && delivered_frames > 0) {
     audio.samples = std::move(accumulated_audio);
-  } else if (streaming && !has_stream_decoder) {
-    // audio.samples already contains the full decode from mode B above.
-  } else if (!streaming && remaining == 0) {
-    audio.samples.clear();
+  } else if (streaming) {
+    // Mode B: deliver all decoded audio in chunk_frames-sized pieces.
+    const int32_t total_s = static_cast<int32_t>(audio.samples.size());
+    const int32_t chunk_s = chunk_frames * kSamplesPerFrame;
+    for (int32_t off = 0; off < total_s && !stop_requested; off += chunk_s) {
+      const int32_t n = std::min(chunk_s, total_s - off);
+      const float prog = static_cast<float>(off + n) / total_s;
+      if (callback(audio.samples.data() + off, n, prog) == 0)
+        stop_requested = true;
+    }
+  } else if (callback && !audio.samples.empty()) {
+    // Batch mode: a single delivery.
+    callback(audio.samples.data(), static_cast<int32_t>(audio.samples.size()),
+             1.0f);
   }
 
   // ------------------------------------------------------------------

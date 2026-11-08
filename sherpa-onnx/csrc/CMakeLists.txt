@@ -306,6 +306,7 @@ if(SHERPA_ONNX_ENABLE_TTS)
     offline-tts-qwen3-impl.cc
     offline-tts-qwen3-model-config.cc
     offline-tts-qwen3-model.cc
+    offline-tts-qwen3-stream-stitcher.cc
     offline-tts-supertonic-impl.cc
     offline-tts-supertonic-model-config.cc
     offline-tts-supertonic-model.cc
@@ -865,6 +866,7 @@ if(SHERPA_ONNX_ENABLE_TESTS)
   if(SHERPA_ONNX_ENABLE_TTS)
     list(APPEND sherpa_onnx_test_srcs
       sentence-piece-tokenizer-test.cc
+      offline-tts-qwen3-stream-stitcher-test.cc
       offline-tts-supertonic-unicode-processor-test.cc
     )
   endif()

@@ -182,6 +182,18 @@ GeneratedAudio OfflineTtsQwen3Impl::Generate(
   if (config_.model.debug)
     SHERPA_ONNX_LOGE("Text tokenized: %d tokens", (int)input_ids.size());
 
+  // The template adds 3 role tokens before and 5 tokens after the text. With
+  // no text tokens in between there is nothing to synthesize.
+  constexpr int32_t kTemplatePrefixTokens = 3;
+  constexpr int32_t kTemplateSuffixTokens = 5;
+  if (static_cast<int32_t>(input_ids.size()) <=
+      kTemplatePrefixTokens + kTemplateSuffixTokens) {
+    SHERPA_ONNX_LOGE("Qwen3-TTS: no text to synthesize in '%s'", text.c_str());
+    GeneratedAudio empty;
+    empty.sample_rate = SampleRate();
+    return empty;
+  }
+
   // ------------------------------------------------------------------
   // Step 2: Build prefill embeddings
   // ------------------------------------------------------------------
@@ -189,7 +201,8 @@ GeneratedAudio OfflineTtsQwen3Impl::Generate(
       cfg.tts_bos_token_id, cfg.tts_eos_token_id, cfg.tts_pad_token_id};
   auto special_embed = RunTextProjectHelper(special_ids);  // [1,3,D]
 
-  const std::vector<int64_t> role_ids(input_ids.begin(), input_ids.begin() + 3);
+  const std::vector<int64_t> role_ids(
+      input_ids.begin(), input_ids.begin() + kTemplatePrefixTokens);
   auto role_embed = RunTextProjectHelper(role_ids);  // [1,3,D]
 
   const std::vector<int64_t> codec_prefix_ids = {
@@ -197,12 +210,10 @@ GeneratedAudio OfflineTtsQwen3Impl::Generate(
       cfg.codec_pad_id, cfg.codec_bos_id};
   auto codec_prefix_embed = RunCodecEmbedHelper(codec_prefix_ids);  // [1,5,D]
 
-  const int32_t text_start = 3;
-  const int32_t text_end = static_cast<int32_t>(input_ids.size()) - 5;
-  std::vector<int64_t> body_text_ids;
-  if (text_end > text_start)
-    body_text_ids.assign(input_ids.begin() + text_start,
-                         input_ids.begin() + text_end);
+  // Non-empty: guaranteed by the check after tokenization.
+  const std::vector<int64_t> body_text_ids(
+      input_ids.begin() + kTemplatePrefixTokens,
+      input_ids.end() - kTemplateSuffixTokens);
 
   const float *special_data = special_embed.GetTensorData<float>();
   const float *role_data = role_embed.GetTensorData<float>();

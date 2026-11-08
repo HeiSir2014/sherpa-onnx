@@ -4,13 +4,15 @@
 
 ## 1. 结论与推荐
 
+> 推荐结论为人工判断；理由中的数字由评测结果自动计算。
+
 | 用途 | 推荐模型 | 理由 |
 |---|---|---|
-| 会议实时字幕 | **SenseVoice-FunASR-Nano-CTC** + VAD | 只比最好的模型差约 1.4 个百分点，算力只要约 1/20（RTF≈0.03），CPU 基本空闲 |
-| 会后纪要 | **FireRedASR2-AED**（要热词时用 Qwen3-ASR-0.6B） | 会议总 CER 第一，5 段中 4 段最佳；sherpa-onnx 里的 FireRed 不支持热词 |
-| 影视字幕（质量优先） | **FireRedASR2-AED** | 影视总 CER 第一，5 段中 4 段最佳，古装、科幻、动作上领先最多 |
-| 影视字幕（成本优先） | **SenseVoice-Small（原版）** | RTF≈0.03；CTC 自带真实 token 时间戳，便于对齐字幕时间轴 |
-| 不推荐 | Fun-ASR-Nano（LLM 版）、Whisper large-v3-turbo、两个方言微调版（SenseVoice 粤语版、Paraformer 川渝版）用于普通话 | 最慢或最不准；方言微调版不是通用普通话模型 |
+| 会议实时字幕 | **SenseVoice-FunASR-Nano-CTC** + VAD | 会议 CER 10.52%，比第一名（FireRedASR2-AED）只差 1.4 个百分点；RTF 0.033，速度是它的 20 倍 |
+| 会后纪要 | **FireRedASR2-AED**（要热词时用 Qwen3-ASR-0.6B） | 会议总 CER 第一（9.08%），5 段中 4 段最佳；sherpa-onnx 里的 FireRed 不支持热词 |
+| 影视字幕（质量优先） | **FireRedASR2-AED** | 影视总 CER 第一（14.46%），5 段中 4 段最佳 |
+| 影视字幕（成本优先） | **SenseVoice-Small（原版）** | 影视 CER 18.06%，RTF 0.032；CTC 自带真实 token 时间戳，便于对齐字幕时间轴 |
+| 不推荐 | Fun-ASR-Nano（LLM 版）、Whisper large-v3-turbo；普通话场景不用两个方言微调版（SenseVoice 粤语版、Paraformer 川渝版） | Whisper 会议/影视 CER 19.8%/36.7%；Fun-ASR-Nano（fp16）影视 CER 24.4%，会议 RTF 1.01；方言微调版不是通用普通话模型 |
 
 ## 2. 会议场景总体结果（5 段 × 8 分钟）
 
@@ -114,9 +116,9 @@
 
 ## 6. 测试环境与方法
 
-- **硬件**：Intel(R) Core(TM) i5-9400 CPU @ 2.90GHz，仅 CPU 推理，6 线程
-- **软件**：sherpa-onnx fork（基于上游 v2.0.1，Python 绑定从源码编译；报告生成时的代码版本 `8e1d0f89`），onnxruntime 1.28.2，Python 3.12.11，Windows 11
-- **流程**：silero-vad（阈值 0.2，最短静音 0.25 s，最长片段 5 s）切分；VAD 结果缓存，**所有模型识别完全相同的片段**；每批 8 个片段解码
+- **硬件**：Intel(R) Core(TM) i5-9400 CPU @ 2.90GHz，仅 CPU 推理，6 线程（评测时记录）
+- **软件**：sherpa-onnx fork（基于上游 v2.0.1，Python 绑定从源码编译；报告生成时的代码版本 `5c2321f1`），onnxruntime 1.28.2，Python 3.12.11，Windows 11
+- **流程**：silero-vad（阈值 0.2，最短静音 0.25 s，最长片段 5 s）切分；VAD 结果按参数和音频内容缓存，**所有模型识别完全相同的片段**；解码批大小：8 个片段/批（SenseVoice-Small（粤语微调版）为整段一次解码）
 - **评测规模**：2 个场景 × 5 段 × 8 分钟 = 80 分钟音频，10 个模型配置
 
 ## 7. 指标说明

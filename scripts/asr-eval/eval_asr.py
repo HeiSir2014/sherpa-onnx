@@ -12,6 +12,7 @@ Usage:
   python eval_asr.py --report                 # print tables from results
 """
 import argparse
+import hashlib
 import json
 import os
 import time
@@ -152,19 +153,39 @@ MODEL_FACTORIES = {
 }
 
 
+# Same settings as python-api-examples/generate-subtitles.py
+VAD_PARAMS = {
+    "model": "silero_vad.onnx",
+    "threshold": 0.2,
+    "min_silence_duration": 0.25,
+    "min_speech_duration": 0.25,
+    "max_speech_duration": 5,
+}
+
+
+def vad_cache_path(clip, samples: np.ndarray) -> Path:
+    """Cache file keyed by VAD settings and the audio content.
+
+    Changing a VAD parameter or re-fetching a clip (e.g. a new offset) must
+    not silently reuse segments computed for different settings or audio.
+    """
+    key = hashlib.sha1(json.dumps(VAD_PARAMS, sort_keys=True).encode())
+    key.update(samples.tobytes())
+    return WORK / "vad" / f"{clip['name']}-{key.hexdigest()[:12]}.json"
+
+
 def vad_segments(clip, samples: np.ndarray):
     """Speech segments as (start_sample, end_sample), cached per clip."""
-    cache = WORK / "vad" / f"{clip['name']}.json"
+    cache = vad_cache_path(clip, samples)
     if cache.exists():
         return [tuple(s) for s in json.loads(cache.read_text())]
 
     config = sherpa_onnx.VadModelConfig()
-    # Same settings as python-api-examples/generate-subtitles.py
-    config.silero_vad.model = str(MODELS / "silero_vad.onnx")
-    config.silero_vad.threshold = 0.2
-    config.silero_vad.min_silence_duration = 0.25
-    config.silero_vad.min_speech_duration = 0.25
-    config.silero_vad.max_speech_duration = 5
+    config.silero_vad.model = str(MODELS / VAD_PARAMS["model"])
+    config.silero_vad.threshold = VAD_PARAMS["threshold"]
+    config.silero_vad.min_silence_duration = VAD_PARAMS["min_silence_duration"]
+    config.silero_vad.min_speech_duration = VAD_PARAMS["min_speech_duration"]
+    config.silero_vad.max_speech_duration = VAD_PARAMS["max_speech_duration"]
     config.sample_rate = SAMPLE_RATE
     window = config.silero_vad.window_size
     vad = sherpa_onnx.VoiceActivityDetector(config, buffer_size_in_seconds=100)
@@ -271,6 +292,8 @@ def evaluate(model_name, clips, force=False):
             "duration": duration,
             "rtf": elapsed / duration,
             "load_seconds": load_seconds,
+            "num_threads": NUM_THREADS,
+            "batch_size": BATCH_SIZE,
             **text_metrics(ref, hyp, duration),
         }
         (out_dir / f"{clip['name']}.json").write_text(

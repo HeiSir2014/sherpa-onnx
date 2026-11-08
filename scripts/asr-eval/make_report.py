@@ -14,7 +14,7 @@ from pathlib import Path
 
 import onnx
 
-from eval_asr import MODELS, REPO_ROOT, WORK
+from eval_asr import REPO_ROOT, VAD_PARAMS, WORK, _model_dir
 from fetch_material import clip_paths
 from metrics import error_breakdown, parse_srt
 
@@ -114,13 +114,6 @@ _BITS = {onnx.TensorProto.INT8: "INT8", onnx.TensorProto.UINT8: "INT8",
          onnx.TensorProto.FLOAT16: "FP16", onnx.TensorProto.FLOAT: "FP32"}
 
 
-def _model_dir(name):
-    for base in (MODELS, REPO_ROOT):
-        if (base / name).is_dir():
-            return base / name
-    raise FileNotFoundError(f"model dir {name} not found")
-
-
 def onnx_stats(path: Path):
     """(parameter count, Counter of params by precision) of one ONNX file."""
     model = onnx.load(str(path), load_external_data=False)
@@ -184,6 +177,55 @@ def _git(*args):
                                    text=True).strip()
 
 
+def scenario_stats(rows, clips, scen):
+    cs = [c for c in clips if c["scenario"] == scen]
+    models = [m for m in MODEL_INFO
+              if all((m, c["name"]) in rows for c in cs)]
+    agg = {m: aggregate(rows, m, cs) for m in models}
+    order = sorted(models, key=lambda m: agg[m]["cer"])
+    best = {c["name"]: min(rows[(m, c["name"])]["cer"] for m in models)
+            for c in cs}
+    wins = Counter(m for c in cs for m in models
+                   if rows[(m, c["name"])]["cer"] == best[c["name"]])
+    return dict(clips=cs, agg=agg, order=order, best=best, wins=wins)
+
+
+def render_recommendations(w, stats):
+    meet, film = stats["meeting"], stats["film"]
+    name = {k: v["name"] for k, v in MODEL_INFO.items()}
+
+    def cer(s, m):
+        return s["agg"][m]["cer"]
+
+    def rtf(s, m):
+        return s["agg"][m]["rtf"]
+
+    top_m, top_f = meet["order"][0], film["order"][0]
+    fast = "sv-funasr-nano-ctc"
+    w("## 1. 结论与推荐\n")
+    w("> 推荐结论为人工判断；理由中的数字由评测结果自动计算。\n")
+    w("| 用途 | 推荐模型 | 理由 |\n|---|---|---|")
+    w(f"| 会议实时字幕 | **{name[fast]}** + VAD | 会议 CER {cer(meet, fast):.2%}，"
+      f"比第一名（{name[top_m]}）只差 {(cer(meet, fast) - cer(meet, top_m)) * 100:.1f} "
+      f"个百分点；RTF {rtf(meet, fast):.3f}，速度是它的 "
+      f"{rtf(meet, top_m) / rtf(meet, fast):.0f} 倍 |")
+    w(f"| 会后纪要 | **{name[top_m]}**（要热词时用 {name['qwen3-asr-0.6b']}） | "
+      f"会议总 CER 第一（{cer(meet, top_m):.2%}），{len(meet['clips'])} 段中 "
+      f"{meet['wins'][top_m]} 段最佳；sherpa-onnx 里的 FireRed 不支持热词 |")
+    w(f"| 影视字幕（质量优先） | **{name[top_f]}** | 影视总 CER 第一"
+      f"（{cer(film, top_f):.2%}），{len(film['clips'])} 段中 "
+      f"{film['wins'][top_f]} 段最佳 |")
+    w(f"| 影视字幕（成本优先） | **{name['sense-voice-2024']}** | 影视 CER "
+      f"{cer(film, 'sense-voice-2024'):.2%}，RTF {rtf(film, 'sense-voice-2024'):.3f}；"
+      "CTC 自带真实 token 时间戳，便于对齐字幕时间轴 |")
+    w("| 不推荐 | Fun-ASR-Nano（LLM 版）、Whisper large-v3-turbo；"
+      "普通话场景不用两个方言微调版（SenseVoice 粤语版、Paraformer 川渝版） | "
+      f"Whisper 会议/影视 CER {cer(meet, 'whisper-turbo'):.1%}/"
+      f"{cer(film, 'whisper-turbo'):.1%}；Fun-ASR-Nano（fp16）影视 CER "
+      f"{cer(film, 'funasr-nano-fp16'):.1%}，会议 RTF "
+      f"{rtf(meet, 'funasr-nano-fp16'):.2f}；方言微调版不是通用普通话模型 |\n")
+
+
 def render(rows, inventory, clips):
     scen_names = {"meeting": "会议场景", "film": "影视场景"}
     out = []
@@ -192,26 +234,11 @@ def render(rows, inventory, clips):
     w("> 本文件由 `scripts/asr-eval/make_report.py` 根据评测结果自动生成，"
       "请勿手工修改；重新评测后运行 `python make_report.py` 即可更新。\n")
 
-    w("## 1. 结论与推荐\n")
-    w("| 用途 | 推荐模型 | 理由 |\n|---|---|---|")
-    w("| 会议实时字幕 | **SenseVoice-FunASR-Nano-CTC** + VAD | 只比最好的模型差约 1.4 个百分点，"
-      "算力只要约 1/20（RTF≈0.03），CPU 基本空闲 |")
-    w("| 会后纪要 | **FireRedASR2-AED**（要热词时用 Qwen3-ASR-0.6B） | 会议总 CER 第一，"
-      "5 段中 4 段最佳；sherpa-onnx 里的 FireRed 不支持热词 |")
-    w("| 影视字幕（质量优先） | **FireRedASR2-AED** | 影视总 CER 第一，5 段中 4 段最佳，"
-      "古装、科幻、动作上领先最多 |")
-    w("| 影视字幕（成本优先） | **SenseVoice-Small（原版）** | RTF≈0.03；CTC 自带真实 token 时间戳，"
-      "便于对齐字幕时间轴 |")
-    w("| 不推荐 | Fun-ASR-Nano（LLM 版）、Whisper large-v3-turbo、"
-      "两个方言微调版（SenseVoice 粤语版、Paraformer 川渝版）用于普通话 | "
-      "最慢或最不准；方言微调版不是通用普通话模型 |\n")
+    stats = {s: scenario_stats(rows, clips, s) for s in ("meeting", "film")}
+    render_recommendations(w, stats)
 
     for scen in ("meeting", "film"):
-        cs = [c for c in clips if c["scenario"] == scen]
-        models = [m for m in MODEL_INFO
-                  if all((m, c["name"]) in rows for c in cs)]
-        agg = {m: aggregate(rows, m, cs) for m in models}
-        order = sorted(models, key=lambda m: agg[m]["cer"])
+        cs, agg, order = (stats[scen][k] for k in ("clips", "agg", "order"))
         idx = 2 if scen == "meeting" else 3
         w(f"## {idx}. {scen_names[scen]}总体结果（{len(cs)} 段 × 8 分钟）\n")
         w("| 排名 | 模型 | 精度 | 参数量 | 模型大小 | CER | 替换 | 删除 | 插入 | "
@@ -231,10 +258,9 @@ def render(rows, inventory, clips):
         w("| 模型 | " + " | ".join(c["name"].split("-", 1)[1] for c in cs) +
           " |")
         w("|---|" + "---|" * len(cs))
+        best = stats[scen]["best"]
         for m in order:
             cells = []
-            best = {c["name"]: min(rows[(x, c["name"])]["cer"]
-                                   for x in order) for c in cs}
             for c in cs:
                 v = rows[(m, c["name"])]["cer"]
                 cells.append(f"**{v:.1%}**" if v == best[c["name"]]
@@ -270,13 +296,16 @@ def render(rows, inventory, clips):
     w("\n均来自官方频道，只使用上传者提供的人工字幕（不使用 YouTube 自动字幕）。\n")
 
     w("## 6. 测试环境与方法\n")
-    w(f"- **硬件**：{_cpu()}，仅 CPU 推理，{_threads(rows)} 线程\n"
+    threads, batches = _run_settings(rows)
+    w(f"- **硬件**：{_cpu()}，仅 CPU 推理，{threads} 线程（评测时记录）\n"
       "- **软件**：sherpa-onnx fork（基于上游 v2.0.1，Python 绑定从源码编译；"
       f"报告生成时的代码版本 `{_git('rev-parse', '--short', 'HEAD')}`），"
       f"onnxruntime 1.28.2，Python {platform.python_version()}，"
       f"{platform.system()} {platform.release()}\n"
-      "- **流程**：silero-vad（阈值 0.2，最短静音 0.25 s，最长片段 5 s）切分；"
-      "VAD 结果缓存，**所有模型识别完全相同的片段**；每批 8 个片段解码\n"
+      f"- **流程**：silero-vad（阈值 {VAD_PARAMS['threshold']}，最短静音 "
+      f"{VAD_PARAMS['min_silence_duration']} s，最长片段 "
+      f"{VAD_PARAMS['max_speech_duration']} s）切分；VAD 结果按参数和音频内容缓存，"
+      f"**所有模型识别完全相同的片段**；解码批大小：{batches}\n"
       "- **评测规模**：2 个场景 × 5 段 × 8 分钟 = 80 分钟音频，"
       f"{len(MODEL_INFO)} 个模型配置\n")
 
@@ -334,9 +363,23 @@ def _cpu():
     return name
 
 
-def _threads(rows):
-    from eval_asr import NUM_THREADS
-    return NUM_THREADS
+def _run_settings(rows):
+    """Thread count and batch sizes as recorded in the results."""
+    threads = sorted({str(r.get("num_threads", "未记录")) for r in rows.values()})
+    by_batch = {}
+    for r in rows.values():
+        by_batch.setdefault(str(r.get("batch_size", "未记录")), set()).add(
+            MODEL_INFO.get(r["model"], {}).get("name", r["model"]))
+    if len(by_batch) == 1:
+        batches = f"{next(iter(by_batch))} 个片段/批"
+    else:
+        main = max(by_batch, key=lambda b: len(by_batch[b]))
+        others = "；".join(
+            f"{'、'.join(sorted(ms))}为"
+            f"{'整段一次解码' if b == 'all' else b + ' 个片段/批'}"
+            for b, ms in by_batch.items() if b != main)
+        batches = f"{main} 个片段/批（{others}）"
+    return "/".join(threads), batches
 
 
 def main():

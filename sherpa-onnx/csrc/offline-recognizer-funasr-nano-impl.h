@@ -61,7 +61,11 @@ class OfflineRecognizerFunASRNanoImpl : public OfflineRecognizerImpl {
   void DecodeStreams(OfflineStream **ss, int32_t n) const override;
 
   // Decode streams with streaming callback for real-time text output
-  // The callback is called for each generated token with the decoded text
+  // The callback is called for each generated token with the decoded text.
+  // The streamed pieces are raw model output: they are not post-processed
+  // (e.g. normalized) and their concatenation can differ from the final
+  // text. Always use OfflineStream::GetResult().text, set when this returns,
+  // as the authoritative result.
   void DecodeStreamsWithCallback(
       OfflineStream **ss, int32_t n,
       const FunASRNanoStreamingCallback &callback) const;

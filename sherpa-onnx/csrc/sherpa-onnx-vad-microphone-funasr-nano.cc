@@ -176,12 +176,16 @@ Environment variables:
   int32_t window_size = vad_config.silero_vad.window_size;
   int32_t segment_index = 0;
 
-  // Streaming callback for real-time text output
-  auto streaming_callback = [](const std::string &text, int64_t token_id,
-                               bool is_final) -> bool {
+  // Streaming callback for real-time text output. The pieces are raw model
+  // output; the final, post-processed text is in stream->GetResult().
+  std::string streamed_text;
+  auto streaming_callback = [&streamed_text](const std::string &text,
+                                             int64_t token_id,
+                                             bool is_final) -> bool {
     // Print each token as it's generated
     fprintf(stdout, "%s", text.c_str());
     fflush(stdout);
+    streamed_text += text;
     return true;  // Continue generation
   };
 
@@ -214,7 +218,13 @@ Environment variables:
 
       if (enable_streaming) {
         // Use streaming callback for real-time output
+        streamed_text.clear();
         recognizer.DecodeStreamWithCallback(stream.get(), streaming_callback);
+        const std::string &final_text = stream->GetResult().text;
+        if (final_text != streamed_text) {
+          // Post-processing changed the text: show the authoritative result.
+          fprintf(stdout, "\n  => %s", final_text.c_str());
+        }
       } else {
         // Use standard decoding
         sherpa_onnx::OfflineStream *streams[] = {stream.get()};

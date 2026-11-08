@@ -550,21 +550,6 @@ OfflineTts OfflineTts::Create(const OfflineTtsConfig &config) {
   c.model.pocket.token_scores_json =
       config.model.pocket.token_scores_json.c_str();
 
-  c.model.qwen3.text_project = config.model.qwen3.text_project.c_str();
-  c.model.qwen3.codec_embed = config.model.qwen3.codec_embed.c_str();
-  c.model.qwen3.code_predictor_embed =
-      config.model.qwen3.code_predictor_embed.c_str();
-  c.model.qwen3.code_predictor = config.model.qwen3.code_predictor.c_str();
-  c.model.qwen3.talker_prefill = config.model.qwen3.talker_prefill.c_str();
-  c.model.qwen3.talker_decode = config.model.qwen3.talker_decode.c_str();
-  c.model.qwen3.speaker_encoder = config.model.qwen3.speaker_encoder.c_str();
-  c.model.qwen3.tokenizer12hz_encode =
-      config.model.qwen3.tokenizer12hz_encode.c_str();
-  c.model.qwen3.tokenizer12hz_decode =
-      config.model.qwen3.tokenizer12hz_decode.c_str();
-  c.model.qwen3.tokenizer12hz_decode_stream =
-      config.model.qwen3.tokenizer12hz_decode_stream.c_str();
-  c.model.qwen3.tokenizer_dir = config.model.qwen3.tokenizer_dir.c_str();
   c.model.pocket.voice_embedding_cache_capacity =
       config.model.pocket.voice_embedding_cache_capacity;
 

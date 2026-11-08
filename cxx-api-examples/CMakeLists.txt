@@ -269,8 +269,9 @@ if(SHERPA_ONNX_ENABLE_TTS)
   add_executable(pocket-tts-en-cxx-api ./pocket-tts-en-cxx-api.cc)
   target_link_libraries(pocket-tts-en-cxx-api sherpa-onnx-cxx-api)
 
+  # Qwen3-TTS is not exposed via the C API, so this example uses the C++ core.
   add_executable(qwen3-tts-cxx-api ./qwen3-tts-cxx-api.cc)
-  target_link_libraries(qwen3-tts-cxx-api sherpa-onnx-cxx-api)
+  target_link_libraries(qwen3-tts-cxx-api sherpa-onnx-core)
 
   add_executable(kokoro-tts-zh-en-cxx-api ./kokoro-tts-zh-en-cxx-api.cc)
   target_link_libraries(kokoro-tts-zh-en-cxx-api sherpa-onnx-cxx-api)

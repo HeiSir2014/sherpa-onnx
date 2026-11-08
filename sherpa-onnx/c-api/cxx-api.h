@@ -1021,21 +1021,6 @@ struct OfflineTtsSupertonicModelConfig {
   std::string voice_style;
 };
 
-/** @brief Qwen3 TTS model configuration. */
-struct OfflineTtsQwen3ModelConfig {
-  std::string text_project;
-  std::string codec_embed;
-  std::string code_predictor_embed;
-  std::string code_predictor;
-  std::string talker_prefill;
-  std::string talker_decode;
-  std::string speaker_encoder;
-  std::string tokenizer12hz_encode;
-  std::string tokenizer12hz_decode;
-  std::string tokenizer12hz_decode_stream;
-  std::string tokenizer_dir;
-};
-
 /**
  * @brief Model configuration for offline TTS.
  *
@@ -1057,8 +1042,6 @@ struct OfflineTtsModelConfig {
   OfflineTtsPocketModelConfig pocket;
   /** Supertonic configuration. */
   OfflineTtsSupertonicModelConfig supertonic;
-  /** Qwen3 configuration. */
-  OfflineTtsQwen3ModelConfig qwen3;
 
   /** Number of inference threads. */
   int32_t num_threads = 1;

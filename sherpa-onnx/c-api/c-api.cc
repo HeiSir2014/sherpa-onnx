@@ -1625,30 +1625,6 @@ static sherpa_onnx::OfflineTtsConfig GetOfflineTtsConfig(
   tts_config.model.supertonic.voice_style =
       SHERPA_ONNX_OR(config->model.supertonic.voice_style, "");
 
-  // qwen3
-  tts_config.model.qwen3.text_project =
-      SHERPA_ONNX_OR(config->model.qwen3.text_project, "");
-  tts_config.model.qwen3.codec_embed =
-      SHERPA_ONNX_OR(config->model.qwen3.codec_embed, "");
-  tts_config.model.qwen3.code_predictor_embed =
-      SHERPA_ONNX_OR(config->model.qwen3.code_predictor_embed, "");
-  tts_config.model.qwen3.code_predictor =
-      SHERPA_ONNX_OR(config->model.qwen3.code_predictor, "");
-  tts_config.model.qwen3.talker_prefill =
-      SHERPA_ONNX_OR(config->model.qwen3.talker_prefill, "");
-  tts_config.model.qwen3.talker_decode =
-      SHERPA_ONNX_OR(config->model.qwen3.talker_decode, "");
-  tts_config.model.qwen3.speaker_encoder =
-      SHERPA_ONNX_OR(config->model.qwen3.speaker_encoder, "");
-  tts_config.model.qwen3.tokenizer12hz_encode =
-      SHERPA_ONNX_OR(config->model.qwen3.tokenizer12hz_encode, "");
-  tts_config.model.qwen3.tokenizer12hz_decode =
-      SHERPA_ONNX_OR(config->model.qwen3.tokenizer12hz_decode, "");
-  tts_config.model.qwen3.tokenizer12hz_decode_stream =
-      SHERPA_ONNX_OR(config->model.qwen3.tokenizer12hz_decode_stream, "");
-  tts_config.model.qwen3.tokenizer_dir =
-      SHERPA_ONNX_OR(config->model.qwen3.tokenizer_dir, "");
-
   tts_config.model.num_threads = GetNumThreads(config->model.num_threads);
   tts_config.model.debug = config->model.debug;
   tts_config.model.provider = SHERPA_ONNX_OR(config->model.provider, "cpu");

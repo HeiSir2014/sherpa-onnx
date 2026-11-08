@@ -1025,11 +1025,6 @@ typedef struct SherpaOnnxOfflineFunASRNanoModelConfig {
   int32_t itn;
   /** Optional hotwords text. */
   const char *hotwords;
-  // Do not add fields here: this struct is embedded by value in
-  // SherpaOnnxOfflineModelConfig, so new members would shift every later
-  // field for bindings that mirror the layout (C#, Dart, Pascal, Rust, wasm).
-  // repetition_penalty, no_repeat_ngram_size and max_tokens_per_second use
-  // their C++ defaults here and are configurable from C++/Python/CLI.
 } SherpaOnnxOfflineFunASRNanoModelConfig;
 
 /** @brief Configuration for an offline Qwen3-ASR model. */
@@ -2423,32 +2418,6 @@ typedef struct SherpaOnnxOfflineTtsPocketModelConfig {
   int32_t voice_embedding_cache_capacity;
 } SherpaOnnxOfflineTtsPocketModelConfig;
 
-/** @brief Configuration for a Qwen3 TTS model. */
-typedef struct SherpaOnnxOfflineTtsQwen3ModelConfig {
-  /** Path to the text projection model. */
-  const char *text_project;
-  /** Path to the codec embedding model. */
-  const char *codec_embed;
-  /** Path to the code predictor embedding model. */
-  const char *code_predictor_embed;
-  /** Path to the code predictor model. */
-  const char *code_predictor;
-  /** Path to the talker prefill model. */
-  const char *talker_prefill;
-  /** Path to the talker decode model. */
-  const char *talker_decode;
-  /** Path to the speaker encoder model. */
-  const char *speaker_encoder;
-  /** Path to the 12Hz tokenizer encoder model. */
-  const char *tokenizer12hz_encode;
-  /** Path to the 12Hz tokenizer decoder model. */
-  const char *tokenizer12hz_decode;
-  /** Path to the streaming 12Hz tokenizer decoder model. */
-  const char *tokenizer12hz_decode_stream;
-  /** Directory containing the tokenizer files. */
-  const char *tokenizer_dir;
-} SherpaOnnxOfflineTtsQwen3ModelConfig;
-
 /** @brief Configuration for a Supertonic TTS model. */
 typedef struct SherpaOnnxOfflineTtsSupertonicModelConfig {
   /** Path to the duration predictor model. */
@@ -2471,8 +2440,8 @@ typedef struct SherpaOnnxOfflineTtsSupertonicModelConfig {
  * @brief Configuration shared by offline TTS models.
  *
  * Exactly one TTS model family should be configured. For example, set only one
- * of @c vits, @c matcha, @c kokoro, @c kitten, @c zipvoice, @c pocket,
- * @c supertonic, or @c qwen3.
+ * of @c vits, @c matcha, @c kokoro, @c kitten, @c zipvoice, @c pocket, or
+ * @c supertonic.
  *
  * If multiple model families are configured at the same time, the
  * implementation will choose one of them, and which one is used is
@@ -2505,11 +2474,6 @@ typedef struct SherpaOnnxOfflineTtsModelConfig {
   SherpaOnnxOfflineTtsPocketModelConfig pocket;
   /** Supertonic configuration. */
   SherpaOnnxOfflineTtsSupertonicModelConfig supertonic;
-  /**
-   * Qwen3 configuration. Kept as the last member so that bindings mirroring
-   * the upstream struct layout remain compatible.
-   */
-  SherpaOnnxOfflineTtsQwen3ModelConfig qwen3;
 } SherpaOnnxOfflineTtsModelConfig;
 
 /**

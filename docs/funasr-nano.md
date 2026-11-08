@@ -84,25 +84,26 @@ tar xvf sherpa-onnx-funasr-nano-int8-2025-12-30.tar.bz2
 FunASR-Nano has two opt-in mechanisms against repetitive (looping) output.
 Both are **disabled by default**.
 
-> **Use an fp16 LLM rather than turning these on.** Looping comes mainly from
-> the int8 LLM (`llm.int8.onnx`), not from the model itself. On 8-minute meeting
-> clips from `scripts/asr-eval`, the 101 s window used for this comparison
-> scored:
+> **Re-download the model package rather than turning these on.** Heavy
+> looping came from a broken int8 LLM (`llm.int8.onnx`) in packages downloaded
+> before 2026-04-12 (issue #3066). Upstream replaced it with a working int8
+> LLM (`llm_int8_compat`, #3493); it is also available at
+> <https://modelscope.cn/models/zengshuishui/FunASR-nano-onnx>.
+> On the 80 minutes of `scripts/asr-eval` material (5 meeting + 5 film clips,
+> 8 minutes each):
 >
-> | LLM | Penalties | CER |
-> |---|---|---|
-> | int8 | off | 134.8% (loops such as "对对对对…") |
-> | int8 | 1.2 + 3-gram | 60.4% (many dropped words) |
-> | fp16 | off | **24.9%** |
-> | fp16 | 1.2 + 3-gram | 38.9% |
+> | LLM | Penalties | Meeting CER | Film CER | Meeting RTF |
+> |---|---|---|---|---|
+> | old int8 | 1.2 + 3-gram | 66.6% (many dropped words) | 70.5% | 0.31 |
+> | fp16 | off | 12.0% | 24.4% | 1.02 |
+> | int8_compat | off | **10.5%** | **21.0%** | **0.44** |
 >
 > Chinese text naturally repeats common characters, so penalties also suppress
-> correct tokens. Enable them only to stop looping when you cannot use a
-> higher-precision LLM. `max_tokens_per_second` (on by default, 15) already
-> bounds any loop without touching normal output: on 811 Chinese VAD segments,
-> real text needed at most 7.5 tokens/s. An fp16 LLM is available at
-> <https://modelscope.cn/models/zengshuishui/FunASR-nano-onnx>
-> (`llm_fp16/llm.fp16.onnx`).
+> correct tokens. Both good LLMs still loop occasionally (a 5 s segment
+> becoming "完了完了…" or "<>>>>…"; int8_compat did so less often than fp16).
+> `max_tokens_per_second` (on by default, 15) bounds every such loop to the
+> segment's duration without touching normal output: on 811 Chinese VAD
+> segments, real text needed at most 7.5 tokens/s.
 
 ### Repetition Penalty
 
@@ -331,9 +332,9 @@ cd go-api-examples/non-streaming-funasr-nano-decode-files
 | Hunan dialect (湖南话) | Good | dia_hunan.wav | Use repetition penalty |
 | Vietnamese | Experimental | vietnamese.wav | |
 
-**Note**: If dialect audio loops with the int8 LLM, prefer an fp16 LLM. Use
-`repetition_penalty=1.2` and `no_repeat_ngram_size=3` only as a fallback (see
-Repetition Control).
+**Note**: If dialect audio loops, first make sure the package has the fixed
+int8 LLM (downloaded on or after 2026-04-12, see Repetition Control). Use
+`repetition_penalty=1.2` and `no_repeat_ngram_size=3` only as a fallback.
 
 ## Test Audio Files
 
@@ -395,9 +396,12 @@ See `dotnet-examples/vad-non-streaming-funasr-nano/` for complete examples.
    - Consider using smaller models for constrained devices
 
 4. **Repetitive output (e.g., "那那那那...")**
-   - First switch to an fp16 LLM: looping comes mainly from int8 quantization
-     of the LLM (see Repetition Control)
-   - If you must stay on int8: `repetition_penalty = 1.2` and
+   - Packages downloaded before 2026-04-12 ship a broken int8 LLM that loops
+     heavily: re-download the package, or replace `llm.int8.onnx` with
+     `llm_int8_compat` (see Repetition Control)
+   - Occasional short loops remain with any LLM precision;
+     `max_tokens_per_second` (default 15) keeps each one bounded
+   - As a last resort, `repetition_penalty = 1.2` and
      `no_repeat_ngram_size = 3` stop the loops but drop correct words
 
 5. **Slow inference**
@@ -411,4 +415,5 @@ See `dotnet-examples/vad-non-streaming-funasr-nano/` for complete examples.
 - **v1.12.22**: Added Dart API support (PR #3055)
 - **v1.12.24**: Added repetition penalty and n-gram blocking for dialect support
 - **v2.0.1 (fork)**: Repetition penalty and n-gram blocking are now off by
-  default (they reduced accuracy on an fp16 LLM). Both are exposed in Python.
+  default (they reduced accuracy on every LLM tested). Both are exposed in
+  Python. `max_tokens_per_second` (default 15) bounds output length.

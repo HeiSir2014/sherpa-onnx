@@ -81,6 +81,17 @@ MODEL_INFO = {
         files=[(FUNASR_INT8, "encoder_adaptor.int8.onnx"),
                (FUNASR_INT8, "embedding.int8.onnx"),
                ("funasr-nano-llm-fp16", "llm.fp16.onnx")]),
+    "funasr-nano-int8-compat": dict(
+        name="Fun-ASR-Nano-2512（LLM int8_compat）",
+        arch="音频编码器 + 适配器 + Qwen3-0.6B LLM（自回归）",
+        source="https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-2512",
+        package=f"{FUNASR_INT8} 的编码器/embedding + ModelScope "
+                "zengshuishui/FunASR-nano-onnx 的 llm_int8_compat"
+                "（上游 #3493，2026-04-12 后的发布包已内置）",
+        langs="中文（7 大方言、26 地区口音）、英语、日语等 31 种",
+        files=[(FUNASR_INT8, "encoder_adaptor.int8.onnx"),
+               (FUNASR_INT8, "embedding.int8.onnx"),
+               ("funasr-nano-llm-int8-compat", "llm.int8.onnx")]),
     "paraformer": dict(
         name="Paraformer-large（川渝方言微调版）",
         arch="Paraformer 非自回归编解码",
@@ -96,8 +107,9 @@ MODEL_INFO = {
         langs="99 种语言",
         files=[("sherpa-onnx-whisper-turbo", "*.int8.onnx")]),
     "funasr-nano-int8-pen": dict(
-        name="Fun-ASR-Nano-2512（全 int8 + 重复惩罚）",
-        arch="同上；LLM 为 int8，惩罚 1.2 + 3-gram 屏蔽（fork 旧默认）",
+        name="Fun-ASR-Nano-2512（旧 int8 LLM + 重复惩罚）",
+        arch="同上；2025-12-30 发布包的旧 int8 LLM（量化损坏，上游 #3066），"
+             "惩罚 1.2 + 3-gram 屏蔽（fork 旧默认）",
         source="https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-2512",
         package=FUNASR_INT8,
         langs="同上",
@@ -108,6 +120,7 @@ MODEL_INFO = {
 RTF_CAVEATS = {
     "whisper-turbo": "会议素材中有 4 段运行时机器在编译，RTF 偏高",
     "paraformer": "部分素材运行时有诊断任务并行，RTF 可能略高",
+    "funasr-nano-int8-compat": "会议素材 talk-yike 运行时机器在编译，RTF 偏高",
 }
 
 _BITS = {onnx.TensorProto.INT8: "INT8", onnx.TensorProto.UINT8: "INT8",
@@ -218,12 +231,15 @@ def render_recommendations(w, stats):
     w(f"| 影视字幕（成本优先） | **{name['sense-voice-2024']}** | 影视 CER "
       f"{cer(film, 'sense-voice-2024'):.2%}，RTF {rtf(film, 'sense-voice-2024'):.3f}；"
       "CTC 自带真实 token 时间戳，便于对齐字幕时间轴 |")
+    nano = "funasr-nano-int8-compat"
     w("| 不推荐 | Fun-ASR-Nano（LLM 版）、Whisper large-v3-turbo；"
       "普通话场景不用两个方言微调版（SenseVoice 粤语版、Paraformer 川渝版） | "
       f"Whisper 会议/影视 CER {cer(meet, 'whisper-turbo'):.1%}/"
-      f"{cer(film, 'whisper-turbo'):.1%}；Fun-ASR-Nano（fp16）影视 CER "
-      f"{cer(film, 'funasr-nano-fp16'):.1%}，会议 RTF "
-      f"{rtf(meet, 'funasr-nano-fp16'):.2f}；方言微调版不是通用普通话模型 |\n")
+      f"{cer(film, 'whisper-turbo'):.1%}；Fun-ASR-Nano 最佳配置（{name[nano]}）"
+      f"会议/影视 CER {cer(meet, nano):.1%}/{cer(film, nano):.1%}，"
+      f"不比同编码器的 {name[fast]}（{cer(meet, fast):.1%}/{cer(film, fast):.1%}）好，"
+      f"RTF 却高 {rtf(meet, nano) / rtf(meet, fast):.0f} 倍，且偶发复读；"
+      "方言微调版不是通用普通话模型 |\n")
 
 
 def render(rows, inventory, clips):
@@ -331,9 +347,12 @@ def render(rows, inventory, clips):
       "生成长度后，一段素材 CER 从 33.6% 降到 15.4% |")
     w("| `f3460762` | Python 默认 prompt 用半角冒号 `语音转写:` | 丢字、乱码 |")
     w("| `99bb5ef6` | 合并上游后 Python TTS 配置绑定编译失败 | Python 包无法构建 |")
-    w("\n**Fun-ASR-Nano 的根因**：sherpa-onnx 发布包 "
-      f"`{FUNASR_INT8}` 中的 **int8 LLM 量化损坏**。只把 LLM 换成 fp16 后，"
-      "同一段 101 秒会议音频的 CER 从 134.8% 降到 24.9%。\n")
+    w("\n**Fun-ASR-Nano 的根因**：sherpa-onnx 旧发布包 "
+      f"`{FUNASR_INT8}`（2026-04-12 前下载）中的 **int8 LLM 量化损坏**"
+      "（上游 issue #3066）。上游已在 #3493 换成 `llm_int8_compat`，"
+      "重新下载发布包即可；本评测中它比 fp16 LLM 更准、快约一倍。"
+      "两种精度仍偶发复读（5 秒片段输出 90 个 \"完了\"、\"<>>>>\" 等），"
+      "默认开启的 `max_tokens_per_second`（15）把每次复读限制在片段时长内。\n")
 
     w("## 9. 局限与注意事项\n")
     w("- 参考是人工字幕而非逐字稿：会省略口吃重复（\"就就就\"）、语气词和部分抢话，"

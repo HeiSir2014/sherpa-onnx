@@ -117,6 +117,14 @@ def _funasr_nano_int8_pen():
                         no_repeat_ngram_size=3)
 
 
+def _funasr_nano_int8_compat():
+    # The int8 LLM upstream switched to in #3493 (fixes looping, #3066):
+    # modelscope.cn/models/zengshuishui/FunASR-nano-onnx, llm_int8_compat/.
+    # Release packages downloaded after 2026-04-12 already contain it.
+    return _funasr_nano(_find(MODELS / "funasr-nano-llm-int8-compat",
+                              "llm.int8.onnx"))
+
+
 def _funasr_nano_fp16():
     # int8 encoder/embedding with an fp16 LLM from
     # modelscope.cn/models/zengshuishui/FunASR-nano-onnx (llm_fp16/)
@@ -147,6 +155,7 @@ MODEL_FACTORIES = {
     "fire-red-aed": _fire_red_aed,
     "qwen3-asr-0.6b": _qwen3_asr,
     "funasr-nano-int8-pen": _funasr_nano_int8_pen,
+    "funasr-nano-int8-compat": _funasr_nano_int8_compat,
     "funasr-nano-fp16": _funasr_nano_fp16,
     "paraformer": _paraformer,
     "whisper-turbo": _whisper_turbo,
